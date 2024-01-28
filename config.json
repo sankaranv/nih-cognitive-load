@@ -1,0 +1,68 @@
+{
+    "param_names": [
+        "PNS index",
+        "SNS index",
+        "Mean RR",
+        "RMSSD",
+        "LF-HF"
+    ],
+    "temporal_feature_names": [
+        "Phase ID",
+        "Time"
+    ],
+    "static_feature_names": [],
+    "param_indices": {
+        "PNS index": 0,
+        "SNS index": 1,
+        "Mean RR": 2,
+        "RMSSD": 3,
+        "LF-HF": 4
+    },
+    "role_names": [
+        "Anes",
+        "Nurs",
+        "Perf",
+        "Surg"
+    ],
+    "role_colors": {
+        "Anes": 0,
+        "Nurs": 1,
+        "Perf": 2,
+        "Surg": 3
+    },
+    "phases": [
+        2,
+        3,
+        4,
+        5,
+        6
+    ],
+    "valid_cases": [
+        1,
+        2,
+        3,
+        4,
+        7,
+        8,
+        9,
+        10,
+        11,
+        13,
+        15,
+        17,
+        18,
+        19,
+        20,
+        21,
+        25,
+        26,
+        27,
+        28,
+        30,
+        31,
+        32,
+        33,
+        35,
+        36
+    ]
+}
