@@ -14,9 +14,8 @@ def eval_metric_density_plots(
     plots_dir,
 ):
     # Get metric values from trace
-    first_key = list(trace.keys())[0]
-    first_param = list(trace[first_key].keys())[0]
-    if metric_name not in trace[first_key][first_param]:
+    first_param = list(trace.keys())[0]
+    if metric_name not in trace[first_param]:
         print(f"Metric {metric_name} not found in trace, only contains {trace.keys()}")
         return
     if metric_name == "corr_coef":
@@ -34,10 +33,10 @@ def eval_metric_density_plots(
         return
 
     # Get correlation coefficients from trace
-    metric = {param_name: [] for param_name in trace[first_key]}
+    metric = {param_name: [] for param_name in trace}
     for case_idx, case_data in test_dataset.items():
-        for param_name in trace[case_idx]:
-            metric[param_name].append(trace[case_idx][param_name][metric_name])
+        for param_name in trace:
+            metric[param_name].append(trace[param_name][metric_name][case_idx])
     for param_name in metric:
         metric[param_name] = np.array(metric[param_name])
 
@@ -69,8 +68,8 @@ def plot_predictions(
     # Plot predictions for each case
     sns.set_style("whitegrid")
     for case_idx, case_data in tqdm(test_dataset.items()):
-        for param_name in trace[case_idx]:
-            case_predictions = trace[case_idx][param_name]["predictions"]
+        for param_name in trace:
+            case_predictions = trace[param_name]["predictions"][case_idx]
             for actor_idx, actor_name in enumerate(config.role_names):
                 param_idx = config.param_indices[param_name]
                 imputed_hrv = case_data[param_idx][actor_idx, 0, :]
@@ -80,6 +79,13 @@ def plot_predictions(
 
                 # Take first prediction in window and append last prediction to end
                 pred_hrv = case_predictions[:, actor_idx]
+
+                # Trim off first seq_len and last pred_len elements
+                if len(pred_hrv) != num_timesteps:
+                    imputed_hrv = imputed_hrv[seq_len:-pred_len]
+                    true_hrv = true_hrv[seq_len:-pred_len]
+                    num_timesteps = num_timesteps - seq_len - pred_len
+
                 # pred_hrv = np.concatenate(
                 #     (pred_hrv, case_predictions[-1, actor_idx].reshape(1))
                 # )
@@ -107,7 +113,7 @@ def plot_predictions(
 
                 # Plot predicted HRV with solid colored line
                 plt.plot(
-                    np.arange(seq_len, num_timesteps),
+                    np.arange(seq_len, num_timesteps + seq_len),
                     pred_hrv,
                     label=f"Predicted",
                     color=f"C{actor_idx}",
@@ -128,24 +134,29 @@ def plot_predictions(
                 plt.close()
 
 
-def generate_scatterplots(model, trace, test_dataset, plots_dir):
+def generate_scatterplots(model, trace, test_dataset, seq_len, pred_len, plots_dir):
     sns.set_style("whitegrid")
     for case_idx, case_data in test_dataset.items():
-        for param_name in trace[case_idx]:
-            case_predictions = trace[case_idx][param_name]["predictions"]
+        for param_name in trace:
+            case_predictions = trace[param_name]["predictions"][case_idx]
             for actor_idx, actor_name in enumerate(config.role_names):
                 param_idx = config.param_indices[param_name]
                 true_hrv = case_data[param_idx][actor_idx, 0, :]
                 pred_hrv = case_predictions[:, actor_idx]
                 num_timesteps = true_hrv.shape[-1]
 
-                # Make sure both true and predicted HRV are same length (hack)
-                diff = np.abs(true_hrv.shape[-1] - pred_hrv.shape[-1])
-                if diff > 0:
-                    if true_hrv.shape[-1] > pred_hrv.shape[-1]:
-                        true_hrv = true_hrv[diff:]
-                    else:
-                        pred_hrv = pred_hrv[diff:]
+                # Trim off first seq_len and last pred_len elements
+                if len(pred_hrv) != num_timesteps:
+                    true_hrv = true_hrv[seq_len:-pred_len]
+                    num_timesteps = num_timesteps - seq_len - pred_len
+
+                # # Make sure both true and predicted HRV are same length (hack)
+                # diff = np.abs(true_hrv.shape[-1] - pred_hrv.shape[-1])
+                # if diff > 0:
+                #     if true_hrv.shape[-1] > pred_hrv.shape[-1]:
+                #         true_hrv = true_hrv[diff:]
+                #     else:
+                #         pred_hrv = pred_hrv[diff:]
 
                 # Remove NaNs
                 pred_hrv = pred_hrv[~np.isnan(true_hrv)]
@@ -218,19 +229,44 @@ def generate_scatterplots(model, trace, test_dataset, plots_dir):
                     plt.close()
 
 
-def plot_loss_curves(model_name, train_loss, val_loss, test_loss, plots_dir, param):
+def plot_loss_curves(model_name, trace, plots_dir):
     sns.set_style("whitegrid")
-    plt.figure(figsize=(10, 6))
-    plt.plot(train_loss, label="train loss")
-    plt.plot(val_loss, label="val loss")
-    plt.title(f"{param} loss for {model_name}: {test_loss}")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.legend()
-    if not os.path.exists(f"{plots_dir}/loss_curves/{model_name}"):
-        os.makedirs(f"{plots_dir}/loss_curves/{model_name}")
-    plt.savefig(f"{plots_dir}/loss_curves/{model_name}/{param}_loss.png")
-    plt.close()
+    for param_name, param_trace in trace.items():
+        if isinstance(param_trace["train_loss"], dict):
+            for k in param_trace["train_loss"].keys():
+                # Cross validation, we need one plot per CV split
+                train_loss = param_trace["train_loss"][k]
+                val_loss = param_trace["val_loss"][k]
+                test_loss = param_trace["test_loss"][k]
+                plt.figure(figsize=(10, 6))
+                plt.plot(train_loss, label="train loss")
+                plt.plot(val_loss, label="val loss")
+                plt.title(f"{param_name} loss for {model_name}: {test_loss}")
+                plt.xlabel("Epoch")
+                plt.ylabel("Loss")
+                plt.legend()
+                if not os.path.exists(f"{plots_dir}/loss_curves/{model_name}"):
+                    os.makedirs(f"{plots_dir}/loss_curves/{model_name}")
+                plt.savefig(
+                    f"{plots_dir}/loss_curves/{model_name}/{param_name}_loss_cv{k}.png"
+                )
+                plt.close()
+        elif isinstance(param_trace["train_loss"], list):
+            # Single run, we only need one plot
+            train_loss = param_trace["train_loss"]
+            val_loss = param_trace["val_loss"]
+            test_loss = param_trace["test_loss"]
+            plt.figure(figsize=(10, 6))
+            plt.plot(train_loss, label="train loss")
+            plt.plot(val_loss, label="val loss")
+            plt.title(f"{param_name} loss for {model_name}: {test_loss}")
+            plt.xlabel("Epoch")
+            plt.ylabel("Loss")
+            plt.legend()
+            if not os.path.exists(f"{plots_dir}/loss_curves/{model_name}"):
+                os.makedirs(f"{plots_dir}/loss_curves/{model_name}")
+            plt.savefig(f"{plots_dir}/loss_curves/{model_name}/{param_name}_loss.png")
+            plt.close()
 
 
 def plot_feature_importances(model, seq_len, plots_dir):

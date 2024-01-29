@@ -86,11 +86,11 @@ class HRVDataset(Dataset):
                 output_features = sequence[
                     :, :, i + self.seq_len : i + self.seq_len + self.pred_len
                 ]
-                # Input features are of shape (4, 11, seq_len)
+                # Input features are of shape (num_actors, num_features, seq_len)
                 # First component of second dim is HRV value, remaining are temporal features
                 input_hrv_values = input_features[:, 0, :].reshape(-1, self.seq_len)
                 temporal_features = input_features[0, 1:, :]
-                # Concatenate to get input of shape (14, seq_len)
+                # Concatenate to get input of shape (num_actors + num_features - 1, seq_len)
                 inputs = torch.cat((input_hrv_values, temporal_features), dim=0)
 
                 # For outputs, we just want 4 HRV values

@@ -98,20 +98,27 @@ class JointLinearModel:
             y.append(target)
         return np.array(X), np.array(y)
 
-    def train(self, train_dataset, verbose=False):
+    def train(self, train_dataset, val_dataset=None, verbose=False):
+        trace = {}
         # Train joint models for each parameter
         for param in config.param_names:
             print(f"Training {self.model_name} for {param}")
             X, y = self.create_train_dataset(train_dataset, param)
             self.models[param].fit(X, y)
+        return trace
 
-    def predict(self, test_dataset):
-        trace = {}
+    def predict(self, test_dataset, trace = None):
+        if trace is None or len(trace) == 0:
+            trace = {param: {} for param in config.param_names}
         # Predict HRV for each case and each param
-        for case_idx, case_data in test_dataset.items():
-            trace[case_idx] = {}
-            for param in config.param_names:
-                trace[case_idx][param] = {}
+        for param in config.param_names:
+            trace[param]["predictions"] =  {}
+            trace[param]["mean_squared_error"] = {}
+            trace[param]["rms_error"] = {}
+            trace[param]["mean_absolute_error"] = {}
+            trace[param]["r_squared"] = {}
+            trace[param]["corr_coef"] = {}
+            for case_idx, case_data in test_dataset.items():
                 # Create input-output pairs for the given parameter
                 X, y = self.create_test_dataset(case_data, param)
                 # Check if no data was returned
@@ -119,20 +126,20 @@ class JointLinearModel:
                     continue
                 # Predict HRV for each actor
                 predictions = self.models[param].predict(X)
-                trace[case_idx][param]["predictions"] = predictions
                 # Check if there are any NaNs in the predictions
                 assert np.all(
                     ~np.isnan(predictions)
                 ), f"Predictions for {param} in case {case_idx} contain NaNs"
+                trace[param]["predictions"][case_idx] = predictions
                 # Get metrics for each case
                 metrics = compute_metrics(y, predictions)
-                trace[case_idx][param]["mean_squared_error"] = metrics[
+                trace[param]["mean_squared_error"][case_idx] = metrics[
                     "mean_squared_error"
                 ]
-                trace[case_idx][param]["rms_error"] = metrics["rms_error"]
-                trace[case_idx][param]["mean_absolute_error"] = metrics[
+                trace[param]["rms_error"][case_idx] = metrics["rms_error"]
+                trace[param]["mean_absolute_error"][case_idx] = metrics[
                     "mean_absolute_error"
                 ]
-                trace[case_idx][param]["r_squared"] = metrics["r_squared"]
-                trace[case_idx][param]["corr_coef"] = metrics["corr_coef"]
+                trace[param]["r_squared"][case_idx] = metrics["r_squared"]
+                trace[param]["corr_coef"][case_idx] = metrics["corr_coef"]
         return trace

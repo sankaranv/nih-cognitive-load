@@ -3,7 +3,20 @@ from utils.data import cv_split
 from utils.config import config
 
 
-def train(model, train_loader, optimizer, criterion, device):
+def train(model, train_loader, val_loader, num_epochs, optimizer, criterion, device, verbose=False):
+    trace = {"train_loss": [], "val_loss": []}
+    for epoch in range(num_epochs):
+        train_loss = train_step(model, train_loader, optimizer, criterion, device)
+        trace["train_loss"].append(train_loss)
+        if val_loader is not None:
+            val_loss = val(model, val_loader, criterion, device)
+            trace["val_loss"].append(val_loss)
+        if verbose:
+            print(f"Epoch {epoch + 1}: Train Loss: {train_loss}, Val Loss: {val_loss}")
+    return trace
+
+def train_step(model, train_loader, optimizer, criterion, device):
+
     model.train()
     train_loss = 0
     for batch_idx, (data, target) in enumerate(train_loader):
@@ -15,19 +28,18 @@ def train(model, train_loader, optimizer, criterion, device):
         optimizer.step()
         train_loss += loss.item()
         # wandb.log({"Train Loss": loss.item()})
-        val(model, train_loader, optimizer, criterion, device)
     return train_loss / len(train_loader.dataset)
 
 
-def val(model, train_loader, optimizer, criterion, device):
+def val(model, val_loader, criterion, device):
     model.eval()
     val_loss = 0
     with torch.no_grad():
-        for data, target in train_loader:
+        for data, target in val_loader:
             data, target = data.to(device), target.to(device)
             output = model.forward(data)
             val_loss += criterion(output, target).item()
-    val_loss /= len(train_loader.dataset)
+    val_loss /= len(val_loader.dataset)
     # wandb.log({"Val Loss": val_loss})
     return val_loss
 
@@ -66,6 +78,10 @@ def create_model(model_type, model_config):
         from models.param_free import ParameterFreeAutoregressiveModel
 
         model = ParameterFreeAutoregressiveModel(model_config)
+    elif model_type == "JointNNModel":
+        from models.torch_model import JointNNModel
+
+        model = JointNNModel(model_config)
     else:
         raise ValueError(f"Invalid model type: {model_type}")
     return model
@@ -86,26 +102,34 @@ def cross_validation(model_type, model_config, dataset, num_folds=5, verbose=Fal
 
         # Train model and get traces
         cv_model = create_model(model_type, model_config)
-        cv_model.train(train_dataset, verbose)
-        trace = cv_model.predict(test_dataset)
+        trace = cv_model.train(train_dataset, val_dataset, verbose)
+        trace = cv_model.predict(test_dataset, trace)
         cv_traces.append(trace)
 
+    # Create combined trace that collects data from all cases
+    combined_trace = {param: {} for param in config.param_names}
+    for param in config.param_names:
+        for key in cv_traces[0][param].keys():
+            combined_trace[param][key] = {}
     # Combine traces across CV splits
-    combined_trace = {}
-    for trace in cv_traces:
-        for case_idx, case_trace in trace.items():
-            if case_idx not in combined_trace:
-                combined_trace[case_idx] = {}
-            for param_name, param_trace in case_trace.items():
-                if param_name not in combined_trace[case_idx]:
-                    combined_trace[case_idx][param_name] = param_trace
+    for k, trace in enumerate(cv_traces):
+        for param_name, param_trace in trace.items():
+            for key in trace[param_name].keys():
+                # For losses, save one dict entry per CV split
+                if key in ["train_loss", "val_loss", "test_loss"]:
+                    combined_trace[param_name][key][k] = trace[param_name][key]
                 else:
-                    print(
-                        f"Cross-validation: case {case_idx} param {param_name} found in multiple CV splits"
-                    )
+                    # For predictions and metrics, put all cases from different CV splits into one dict
+                    for case_idx, case_trace in trace[param_name][key].items():
+                        if case_idx not in combined_trace[param_name][key]:
+                            combined_trace[param_name][key][case_idx] = case_trace
+                        else:
+                            print(
+                                f"Cross-validation: case {case_idx} param {param_name} {key} found in multiple CV splits"
+                            )
 
-    # Train model on full dataset
+    # Train model on full dataset, we can ignore trace
     model = create_model(model_type, model_config)
-    model.train(dataset)
+    _ = model.train(dataset)
 
     return model, combined_trace

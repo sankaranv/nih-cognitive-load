@@ -504,3 +504,49 @@ def prune_actors(dataset, actors_to_keep=["Surg"]):
             case_data = case_data[:, np.newaxis, :, :]
         new_dataset[case_id] = case_data
     return new_dataset
+
+def standardize_dataset(dataset):
+    """
+    For each parameter in the dataset, make the mean 0 and std 1 across all cases
+    Return the mean and std for each parameter so it can be inverted at test time
+    Args:
+        dataset:
+
+    Returns:
+
+    """
+    dataset_means = {role: 0 for role in config.role_names}
+    dataset_stds = {role: 0 for role in config.role_names}
+    samples = {role: None for role in config.role_names}
+    # Collect samples for each parameter
+    for case_idx, case_data in dataset.items():
+        for param_idx, param_data in enumerate(case_data):
+            # Concatenate along the sample dimension
+            role_name = config.role_names[param_idx]
+            if samples[role_name] is None:
+                samples[role_name] = param_data
+            else:
+                samples[role_name] = np.concatenate((samples[role_name], param_data), axis=-1)
+    # Compute dataset mean and variance
+    for role_name, role_data in samples.items():
+        dataset_means[role_name] = np.nanmean(role_data, axis=-1)
+        dataset_stds[role_name] = np.nanstd(role_data, axis=-1)
+    # Standardize dataset
+    new_dataset = {}
+    for case_idx, case_data in dataset.items():
+        new_case_data = {}
+        for param_idx, param_data in enumerate(case_data):
+            param_name = config.param_names[param_idx]
+            new_case_data[param_name] = (param_data - dataset_means[param_name]) / dataset_stds[param_name]
+        new_dataset[case_idx] = new_case_data
+    return new_dataset, dataset_means, dataset_stds
+
+def rescale_standardized_predictions(trace, param_means, param_stds):
+    # TODO - complete standardization
+    for case_idx, case_data in trace.items():
+        predictions = case_data["predictions"]
+        for param_name, param_data in case_data.items():
+            trace[case_idx][param_name] = param_data * param_stds[param_name] + param_means[param_name]
+    return trace
+
+
