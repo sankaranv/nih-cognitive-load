@@ -1,0 +1,7 @@
+{
+  "base_model": "GaussianProcess",
+  "model_name": "RBFGaussianProcess",
+  "seq_len": 5,
+  "pred_len": 1,
+  "kernel": "RBF"
+}

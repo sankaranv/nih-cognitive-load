@@ -3,7 +3,16 @@ from utils.data import cv_split
 from utils.config import config
 
 
-def train(model, train_loader, val_loader, num_epochs, optimizer, criterion, device, verbose=False):
+def train(
+    model,
+    train_loader,
+    val_loader,
+    num_epochs,
+    optimizer,
+    criterion,
+    device,
+    verbose=False,
+):
     trace = {"train_loss": [], "val_loss": []}
     for epoch in range(num_epochs):
         train_loss = train_step(model, train_loader, optimizer, criterion, device)
@@ -15,8 +24,8 @@ def train(model, train_loader, val_loader, num_epochs, optimizer, criterion, dev
             print(f"Epoch {epoch + 1}: Train Loss: {train_loss}, Val Loss: {val_loss}")
     return trace
 
-def train_step(model, train_loader, optimizer, criterion, device):
 
+def train_step(model, train_loader, optimizer, criterion, device):
     model.train()
     train_loss = 0
     for batch_idx, (data, target) in enumerate(train_loader):
@@ -130,6 +139,6 @@ def cross_validation(model_type, model_config, dataset, num_folds=5, verbose=Fal
 
     # Train model on full dataset, we can ignore trace
     model = create_model(model_type, model_config)
-    _ = model.train(dataset)
+    _ = model.train(dataset, verbose=False)
 
     return model, combined_trace

@@ -1,0 +1,6 @@
+{
+  "base_model": "XGBoost",
+  "model_name": "XGBoost",
+  "seq_len": 5,
+  "pred_len": 1
+}

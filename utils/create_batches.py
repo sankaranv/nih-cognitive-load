@@ -59,7 +59,7 @@ class HRVDataset(Dataset):
         sequences = []
         for key in self.dataset.keys():
             case_param_data = self.dataset[key][config.param_indices[self.param]]
-            sequences.append(torch.Tensor(case_param_data))
+            sequences.append((key, torch.Tensor(case_param_data)))
 
         return sequences
 
@@ -75,16 +75,18 @@ class HRVDataset(Dataset):
             List of input-output pairs, where each pair is a tuple of (inputs, outputs)
         """
         input_output_pairs = []
-        for sequence in sequences:
+        for case_id, sequence in sequences:
             case_seq_length = sequence.shape[-1]
             assert case_seq_length >= self.seq_len + self.pred_len, (
                 f"Cannot create input-output pairs for sequence of length {case_seq_length} "
                 f"using seq_len {self.seq_len} and pred_len {self.pred_len}"
             )
-            for i in range(case_seq_length - self.seq_len - self.pred_len):
-                input_features = sequence[:, :, i : i + self.seq_len]
+            for i in range(case_seq_length - self.seq_len - self.pred_len + 1):
+                # Crop out only the actors from the config
+                actors = [config.role_colors[role] for role in config.role_names]
+                input_features = sequence[actors, :, i : i + self.seq_len]
                 output_features = sequence[
-                    :, :, i + self.seq_len : i + self.seq_len + self.pred_len
+                    actors, :, i + self.seq_len : i + self.seq_len + self.pred_len
                 ]
                 # Input features are of shape (num_actors, num_features, seq_len)
                 # First component of second dim is HRV value, remaining are temporal features

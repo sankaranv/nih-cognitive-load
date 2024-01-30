@@ -1,4 +1,6 @@
 from models.mlp import MLP
+from models.lstm import LSTM
+from models.hrv_transformer import ContinuousTransformer
 from utils.config import config
 from utils.create_batches import create_torch_loader_from_dataset
 import utils.training as train_utils
@@ -9,7 +11,7 @@ import numpy as np
 class JointNNModel:
 
     def __init__(self, model_config):
-        self.base_model = MLP
+        self.base_model = model_config["base_model"]
         self.model_name = model_config["model_name"]
         self.seq_len = model_config["seq_len"]
         self.pred_len = model_config["pred_len"]
@@ -23,7 +25,12 @@ class JointNNModel:
         self.criterion = nn.MSELoss()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         for param in config.param_names:
-            self.models[param] = self.base_model(model_config=self.model_config).to(self.device)
+            if self.base_model == "MLP":
+                self.models[param] = MLP(self.model_config).to(self.device)
+            elif self.base_model == "LSTM":
+                self.models[param] = LSTM(self.model_config).to(self.device)
+            elif self.base_model == "ContinuousTransformer":
+                self.models[param] = ContinuousTransformer(self.model_config).to(self.device)
             self.optimizer[param] = torch.optim.Adam(self.models[param].parameters(), lr=self.model_config["lr"])
 
 
@@ -80,11 +87,14 @@ class JointNNModel:
             idx = 0
             for case_idx in case_ids:
                 num_samples = test_dataset[case_idx].shape[-1]
-                offset = self.seq_len + self.pred_len
+                offset = self.seq_len + self.pred_len - 1
                 case_predictions = predictions[idx: idx + num_samples - offset].squeeze().detach().cpu().numpy()
                 idx += num_samples - offset
                 trace[param]["predictions"][case_idx] = case_predictions
-                y = test_dataset[case_idx][param_idx, :, 0, self.seq_len:-self.pred_len].transpose()
+                y = test_dataset[case_idx][param_idx, :, 0, self.seq_len:].transpose()
+                actors = [config.role_colors[actor] for actor in config.role_names]
+                y = y[:, actors].reshape(-1, len(actors))
+                case_predictions = case_predictions.reshape(-1, len(actors))
                 # Get metrics for each case
                 metrics = compute_metrics(y, case_predictions)
                 trace[param]["mean_squared_error"][case_idx] = metrics[

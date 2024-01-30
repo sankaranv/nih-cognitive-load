@@ -5,6 +5,7 @@ import numpy as np
 import torch.nn.init as init
 from utils.config import config
 
+
 class MLP(nn.Module):
     """
     Simple MLP for testing purposes
@@ -12,9 +13,7 @@ class MLP(nn.Module):
     Output dim is (batch_size, num_actors, pred_len) since we only predict HRV value
     """
 
-    def __init__(
-        self, model_config
-    ):
+    def __init__(self, model_config):
         super().__init__()
         self.batch_size = model_config["batch_size"]
         self.num_actors = len(config.role_names)
@@ -26,7 +25,10 @@ class MLP(nn.Module):
         self.model_name = model_config["model_name"]
         self.input_layer = nn.Linear(self.input_size, self.hidden_dims[0])
         for i in range(len(self.hidden_dims) - 1):
-            setattr(self, f"fc{i}", nn.Linear(self.hidden_dims[i], self.hidden_dims[i + 1]))
+            setattr(
+                self, f"fc{i}", nn.Linear(self.hidden_dims[i], self.hidden_dims[i + 1])
+            )
+            setattr(self, f"bn{i}", nn.BatchNorm1d(self.hidden_dims[i + 1]))
         self.output_layer = nn.Linear(self.hidden_dims[-1], self.output_size)
         self.apply(self._initialize_weights)
 
@@ -54,8 +56,7 @@ class MLP(nn.Module):
             x = getattr(self, f"fc{i}")(x)
             x = F.relu(x)
             x = F.dropout(x, p=p)
+            x = getattr(self, f"bn{i}")(x)
         x = self.output_layer(x)
         x = x.view(batch_size, self.num_actors, self.pred_len)
         return x
-
-

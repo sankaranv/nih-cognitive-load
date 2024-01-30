@@ -40,14 +40,17 @@ def eval_metric_density_plots(
     for param_name in metric:
         metric[param_name] = np.array(metric[param_name])
 
+
     sns.set_style("whitegrid")
     for param_name in metric:
         for actor in config.role_names:
             actor_idx = config.role_indices[actor]
-            sns.kdeplot(metric[param_name][actor_idx], bw_method=0.5, label=actor)
+            actor_color = f"C{config.role_colors[actor]}"
+            sns.kdeplot(metric[param_name][:, actor_idx], bw_method=0.5, label=actor, color=actor_color, legend=True)
         plt.title(f"Density of {param_name} {metric_title} for {model_name}")
         plt.xlabel(metric_title)
         plt.ylabel("Density")
+        plt.legend()
         if not os.path.exists(f"{plots_dir}/density_plots/{model_name}"):
             os.makedirs(f"{plots_dir}/density_plots/{model_name}")
         plt.savefig(
@@ -71,20 +74,32 @@ def plot_predictions(
         for param_name in trace:
             case_predictions = trace[param_name]["predictions"][case_idx]
             for actor_idx, actor_name in enumerate(config.role_names):
+                actor_color = f"C{config.role_colors[actor_name]}"
                 param_idx = config.param_indices[param_name]
                 imputed_hrv = case_data[param_idx][actor_idx, 0, :]
                 true_hrv = unimputed_test_dataset[case_idx][param_idx][actor_idx, 0, :]
                 num_timesteps = imputed_hrv.shape[-1]
                 plt.figure(figsize=(10, 6))
 
-                # Take first prediction in window and append last prediction to end
-                pred_hrv = case_predictions[:, actor_idx]
+                # Get predicted HRV
+                if len(case_predictions.shape) > 1:
+                    pred_hrv = case_predictions[:, actor_idx]
+                else:
+                    pred_hrv = case_predictions
 
-                # Trim off first seq_len and last pred_len elements
+                # Trim off first seq_len elements
                 if len(pred_hrv) != num_timesteps:
-                    imputed_hrv = imputed_hrv[seq_len:-pred_len]
-                    true_hrv = true_hrv[seq_len:-pred_len]
-                    num_timesteps = num_timesteps - seq_len - pred_len
+                    imputed_hrv = imputed_hrv[seq_len:]
+                    true_hrv = true_hrv[seq_len:]
+                    num_timesteps = num_timesteps - seq_len
+
+                # # Make sure both true and predicted HRV are same length (hack)
+                # diff = np.abs(true_hrv.shape[-1] - pred_hrv.shape[-1])
+                # if diff > 0:
+                #     if true_hrv.shape[-1] > pred_hrv.shape[-1]:
+                #         true_hrv = true_hrv[diff:]
+                #     else:
+                #         pred_hrv = pred_hrv[diff:]
 
                 # pred_hrv = np.concatenate(
                 #     (pred_hrv, case_predictions[-1, actor_idx].reshape(1))
@@ -116,10 +131,11 @@ def plot_predictions(
                     np.arange(seq_len, num_timesteps + seq_len),
                     pred_hrv,
                     label=f"Predicted",
-                    color=f"C{actor_idx}",
+                    color=actor_color,
                 )
                 plt.legend()
-                plt.title(f"{model_name}: Case {case_idx} {actor_name} {param_name}")
+                mean_abs_error = trace[param_name]["mean_absolute_error"][case_idx]
+                plt.title(f"{model_name}: Case {case_idx} {actor_name} {param_name} MAE={mean_abs_error:.2f}")
 
                 # Save plot
                 if not os.path.exists(
@@ -140,15 +156,21 @@ def generate_scatterplots(model, trace, test_dataset, seq_len, pred_len, plots_d
         for param_name in trace:
             case_predictions = trace[param_name]["predictions"][case_idx]
             for actor_idx, actor_name in enumerate(config.role_names):
+                actor_color = f"C{config.role_colors[actor_name]}"
                 param_idx = config.param_indices[param_name]
                 true_hrv = case_data[param_idx][actor_idx, 0, :]
-                pred_hrv = case_predictions[:, actor_idx]
                 num_timesteps = true_hrv.shape[-1]
 
-                # Trim off first seq_len and last pred_len elements
+                # Get predicted HRV
+                if len(case_predictions.shape) > 1:
+                    pred_hrv = case_predictions[:, actor_idx]
+                else:
+                    pred_hrv = case_predictions
+
+                # Trim off first seq_len elements
                 if len(pred_hrv) != num_timesteps:
-                    true_hrv = true_hrv[seq_len:-pred_len]
-                    num_timesteps = num_timesteps - seq_len - pred_len
+                    true_hrv = true_hrv[seq_len:]
+                    num_timesteps = num_timesteps - seq_len
 
                 # # Make sure both true and predicted HRV are same length (hack)
                 # diff = np.abs(true_hrv.shape[-1] - pred_hrv.shape[-1])
@@ -167,6 +189,19 @@ def generate_scatterplots(model, trace, test_dataset, seq_len, pred_len, plots_d
                         f"No data for case {case_idx} {actor_name} {param_name}, skipping plots"
                     )
                 else:
+
+                    # Setup plot
+                    plt.figure(figsize=(6, 6))
+                    # Set scatterplot range so x and y axes are the same
+                    plot_range = np.max(np.abs(true_hrv))
+
+                    # Dotted line along the diagonal
+                    plt.plot(
+                        [-plot_range, plot_range],
+                        [-plot_range, plot_range],
+                        color="black",
+                        linestyle="--",
+                    )
                     # Compute correlation coefficient between predicted and true HRV
                     # Use pandas since it is NaN sensitive
                     corr = (
@@ -174,43 +209,40 @@ def generate_scatterplots(model, trace, test_dataset, seq_len, pred_len, plots_d
                         .corr()
                         .iloc[0, 1]
                     )
-                    # Find mean square error
-                    mse = np.mean((true_hrv - pred_hrv) ** 2)
+
                     # Find angle between line of best fit of the points and the diagonal
                     # Pruning points more than 3 standard deviations away from the mean
                     # For each prediction, compute squared distance from true value
                     # Then remove points more than 3 standard deviations away from the mean
                     distances = (true_hrv - pred_hrv) ** 2
-                    dist_idx = np.where(distances < 3 * np.std(distances))
-                    true_hrv_pruned = true_hrv[dist_idx]
-                    pred_hrv_pruned = pred_hrv[dist_idx]
-                    coefficients = np.polyfit(true_hrv_pruned, pred_hrv_pruned, 1)
-                    slope = coefficients[0]
-                    angle = np.degrees(np.arctan(slope) - np.pi / 4)
-                    # Dotted line along the diagonal
-                    plt.figure(figsize=(6, 6))
-                    # Set scatterplot range so x and y axes are the same
-                    plot_range = np.max(np.abs(true_hrv))
-                    plt.plot(
-                        [-plot_range, plot_range],
-                        [-plot_range, plot_range],
-                        color="black",
-                        linestyle="--",
-                    )
-                    # Faint dotted line along the line of best fit
-                    plt.plot(
-                        [-plot_range, plot_range],
-                        [-plot_range * slope, plot_range * slope],
-                        color="black",
-                        linestyle="--",
-                        alpha=0.3,
-                    )
+                    # Find mean square error
+                    mse = np.mean(distances)
+                    dist_idx = np.where(distances < (3 * np.std(distances)))
+                    if len(dist_idx) > 1:
+                        true_hrv_pruned = true_hrv[dist_idx]
+                        pred_hrv_pruned = pred_hrv[dist_idx]
+                        coefficients = np.polyfit(true_hrv_pruned, pred_hrv_pruned, 1)
+                        slope = coefficients[0]
+                        angle = np.degrees(np.arctan(slope) - np.pi / 4)
+
+                        # Faint dotted line along the line of best fit
+                        plt.plot(
+                            [-plot_range, plot_range],
+                            [-plot_range * slope, plot_range * slope],
+                            color="black",
+                            linestyle="--",
+                            alpha=0.3,
+                        )
+                        plt.title(
+                            f"Case {case_idx} {actor_name} {param_name}: Corr={corr:.2f}, MSE={mse:.2f}, Angle={angle:.2f}"
+                        )
+                    else:
+                        plt.title(
+                            f"Case {case_idx} {actor_name} {param_name}: Corr={corr:.2f}, MSE={mse:.2f}"
+                        )
                     # Scatterplot of predicted vs true HRV on unimputed data
                     plt.scatter(
-                        true_hrv, pred_hrv, label=f"Predicted", color=f"C{actor_idx}"
-                    )
-                    plt.title(
-                        f"Case {case_idx} {actor_name} {param_name}: Corr={corr:.2f}, MSE={mse:.2f}, Angle={angle:.2f}"
+                        true_hrv, pred_hrv, label=f"Predicted", color=actor_color
                     )
                     plt.xlim([-plot_range, plot_range])
                     plt.ylim([-plot_range, plot_range])
@@ -290,23 +322,37 @@ def plot_feature_importances(model, seq_len, plots_dir):
         # Plot coefficients for each actor
 
         indices = np.argsort(importances[0])[::-1]
-        fig, axs = plt.subplots(4, 1, figsize=(10, 15), sharey=True)
+        fig, axs = plt.subplots(len(config.role_names), 1, figsize=(10, 15), sharey=True)
         fig.suptitle(f"Regression coefficients for {param_name}")
         for actor_idx, actor_name in enumerate(config.role_names):
-            axs[actor_idx].bar(
-                range(len(indices)),
-                importances[actor_idx],
-                color=f"C{actor_idx}",
-                align="center",
-                label=actor_name,
-            )
-            axs[actor_idx].set_xticks(range(len(indices)))
-            axs[actor_idx].set_xticklabels(x_names, rotation=90)
-            axs[actor_idx].set_xlim([-1, len(indices)])
-            axs[actor_idx].set_ylabel("Coefficient")
-            axs[actor_idx].set_title(actor_name)
-
-        plt.subplots_adjust(hspace=0.5)
+            actor_color = f"C{config.role_colors[actor_name]}"
+            if len(config.role_names) == 1:
+                axs.bar(
+                    range(len(indices)),
+                    importances[actor_idx],
+                    color=actor_color,
+                    align="center",
+                    label=actor_name,
+                )
+                axs.set_xticks(range(len(indices)))
+                axs.set_xticklabels(x_names, rotation=90)
+                axs.set_xlim([-1, len(indices)])
+                axs.set_ylabel("Coefficient")
+                axs.set_title(actor_name)
+            else:
+                axs[actor_idx].bar(
+                    range(len(indices)),
+                    importances[actor_idx],
+                    color=actor_color,
+                    align="center",
+                    label=actor_name,
+                )
+                axs[actor_idx].set_xticks(range(len(indices)))
+                axs[actor_idx].set_xticklabels(x_names, rotation=90)
+                axs[actor_idx].set_xlim([-1, len(indices)])
+                axs[actor_idx].set_ylabel("Coefficient")
+                axs[actor_idx].set_title(actor_name)
+                plt.subplots_adjust(hspace=0.5)
         if not os.path.exists(f"{plots_dir}/feature_importances"):
             os.makedirs(f"{plots_dir}/feature_importances")
         plt.savefig(

@@ -4,6 +4,7 @@ from torch import nn, Tensor
 import torch.nn.init as init
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 from torch.nn import TransformerDecoder, TransformerDecoderLayer
+from utils.config import config
 
 
 class PositionalEncoding(nn.Module):
@@ -42,10 +43,8 @@ class PositionalEncoding(nn.Module):
         # enc_with_time = torch.zeros(batch_size, d_model, seq_len)
         # for i in range(time_vector.shape[0]):
         #     enc_with_time[i, :, :] = self.pe[time_vector[i],:].transpose(0,1)
-        enc_with_time = self.pe[time_vector.unsqueeze(1), :].squeeze().transpose(1,-1)
+        enc_with_time = self.pe[time_vector.unsqueeze(1), :].squeeze().transpose(1, -1)
         return enc_with_time + x
-
-
 
 
 class PhaseEncoding(nn.Module):
@@ -67,8 +66,10 @@ class PhaseEncoding(nn.Module):
         """
         batch_size, num_features, seq_len = phase_one_hot.shape
         d_model = x.shape[1]
-        phase_one_hot_reshaped = phase_one_hot.permute(0,2,1).unsqueeze(3)
-        emb = phase_one_hot_reshaped * self.embeddings.weight.view(1, 1, num_features, d_model)
+        phase_one_hot_reshaped = phase_one_hot.permute(0, 2, 1).unsqueeze(3)
+        emb = phase_one_hot_reshaped * self.embeddings.weight.view(
+            1, 1, num_features, d_model
+        )
         x += emb.sum(dim=2).permute(0, 2, 1)
         return self.dropout(x)
 
@@ -86,37 +87,37 @@ class ContinuousTransformer(nn.Module):
         dropout (float, optional): Dropout probability. Defaults to 0.5.
     """
 
-    def __init__(
-        self, architecture, seq_len, pred_len, max_len, num_actors
-    ):
+    def __init__(self, model_config):
         super().__init__()
-        self.d_model = architecture["d_model"]
-        self.n_heads = architecture["n_heads"]
-        self.d_hidden = architecture["d_hidden"]
-        self.n_enc_layers = architecture["n_enc_layers"]
-        self.n_dec_layers = architecture["n_dec_layers"]
-        self.dropout = architecture["dropout"]
-        self.n_phases = architecture["n_phases"]
-        self.max_len = max_len
-        self.arch = architecture
-        self.name = "ContinuousTransformer"
+        self.d_model = model_config["d_model"]
+        self.n_heads = model_config["n_heads"]
+        self.d_hidden = model_config["d_hidden"]
+        self.n_enc_layers = model_config["n_enc_layers"]
+        self.n_dec_layers = model_config["n_dec_layers"]
+        self.dropout = model_config["dropout"]
+        self.n_phases = len(config.phases)
+        self.max_len = model_config["max_len"]
+        self.seq_len = model_config["seq_len"]
+        self.pred_len = model_config["pred_len"]
+        self.model_config = model_config
+        self.model_name = "ContinuousTransformer"
 
-        self.hrv_encoder = nn.Linear(num_actors, self.d_model)
+        self.num_actors = len(config.role_names)
+        self.hrv_encoder = nn.Linear(self.num_actors, self.d_model)
         self.pos_encoder = PositionalEncoding(self.d_model, self.max_len, self.dropout)
         self.phase_encoder = PhaseEncoding(self.d_model, self.n_phases, self.dropout)
         encoder_layers = TransformerEncoderLayer(
             self.d_model, self.n_heads, self.d_hidden, self.dropout
         )
         self.transformer_encoder = TransformerEncoder(encoder_layers, self.n_enc_layers)
-        self.target_decoder = nn.Linear(num_actors * pred_len, self.d_model)
-        decoder_layers = TransformerDecoderLayer(self.d_model, self.n_heads, self.d_hidden, self.dropout)
+        self.target_decoder = nn.Linear(self.num_actors * self.pred_len, self.d_model)
+        decoder_layers = TransformerDecoderLayer(
+            self.d_model, self.n_heads, self.d_hidden, self.dropout
+        )
         self.transformer_decoder = TransformerDecoder(decoder_layers, self.n_dec_layers)
-        self.output_layer = nn.Linear(self.d_model * seq_len, num_actors * pred_len)
-        # self._init_weights()
-
-        self.num_actors = num_actors
-        self.seq_len = seq_len
-        self.pred_len = pred_len
+        self.output_layer = nn.Linear(
+            self.d_model * self.seq_len, self.num_actors * self.pred_len
+        )
 
         self.apply(self.initialize_weights)
 
@@ -145,7 +146,7 @@ class ContinuousTransformer(nn.Module):
         # Output dim is (batch_size, num_actors, pred_len) since we only predict HRV value
 
         # Use only the first four dims in encoder to get shape (batch_size, num_actors, seq_len)
-        hrv_in = x[:, :self.num_actors, :]
+        hrv_in = x[:, : self.num_actors, :]
         # Reshape to (batch_size * seq_len, num_actors)
         batch_size = hrv_in.shape[0]
         seq_len = hrv_in.shape[-1]
@@ -159,7 +160,7 @@ class ContinuousTransformer(nn.Module):
         out = self.pos_encoder(out, time_idx)
 
         # Use remaining dims for phase encoding to get shape (batch_size, num_features - 2, seq_len)
-        phase_one_hot = x[:, self.num_actors:-1, :]
+        phase_one_hot = x[:, self.num_actors : -1, :]
         out = self.phase_encoder(out, phase_one_hot)
 
         # Reshape to (batch_size, seq_len, d_model) for transformer encoder

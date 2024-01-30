@@ -1,0 +1,16 @@
+{
+        "model_name": "ContinuousTransformer",
+        "base_model": "ContinuousTransformer",
+        "seq_len": 5,
+        "pred_len": 1,
+        "lr": 0.001,
+        "batch_size": 32,
+        "num_epochs": 20,
+        "d_model": 128,
+        "n_heads": 8,
+        "d_hidden": 256,
+        "n_enc_layers": 4,
+        "n_dec_layers": 4,
+        "dropout": 0.1,
+        "max_len": 100
+    }
