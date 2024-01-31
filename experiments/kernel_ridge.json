@@ -1,6 +1,4 @@
 {
   "base_model": "KernelRidge",
-  "model_name": "KernelRidge",
-  "seq_len": 5,
-  "pred_len": 1
+  "model_name": "KernelRidge"
 }

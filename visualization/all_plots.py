@@ -32,7 +32,7 @@ def eval_metric_density_plots(
         print(f"Metric {metric_name} not supported")
         return
 
-    # Get correlation coefficients from trace
+    # Get metrics from trace
     metric = {param_name: [] for param_name in trace}
     for case_idx, case_data in test_dataset.items():
         for param_name in trace:
@@ -40,21 +40,32 @@ def eval_metric_density_plots(
     for param_name in metric:
         metric[param_name] = np.array(metric[param_name])
 
-
     sns.set_style("whitegrid")
     for param_name in metric:
-        for actor in config.role_names:
-            actor_idx = config.role_indices[actor]
-            actor_color = f"C{config.role_colors[actor]}"
-            sns.kdeplot(metric[param_name][:, actor_idx], bw_method=0.5, label=actor, color=actor_color, legend=True)
+        if metric_name == "corr_coef":
+            for actor in config.role_names:
+                actor_idx = config.role_indices[actor]
+                actor_color = f"C{config.role_colors[actor]}"
+                sns.kdeplot(
+                    metric[param_name][:, actor_idx],
+                    bw_method=0.5,
+                    label=actor,
+                    color=actor_color,
+                )
+        else:
+            sns.kdeplot(
+                metric[param_name],
+                bw_method=0.5,
+                label=param_name,
+            )
         plt.title(f"Density of {param_name} {metric_title} for {model_name}")
         plt.xlabel(metric_title)
         plt.ylabel("Density")
         plt.legend()
-        if not os.path.exists(f"{plots_dir}/density_plots/{model_name}"):
-            os.makedirs(f"{plots_dir}/density_plots/{model_name}")
+        if not os.path.exists(f"{plots_dir}/density_plots/{model_name}/{metric_name}"):
+            os.makedirs(f"{plots_dir}/density_plots/{model_name}/{metric_name}")
         plt.savefig(
-            f"{plots_dir}/density_plots/{model_name}/{metric_name}_{param_name}_density.png"
+            f"{plots_dir}/density_plots/{model_name}/{metric_name}/{metric_name}_{param_name}_density.png"
         )
         plt.close()
 
@@ -135,7 +146,9 @@ def plot_predictions(
                 )
                 plt.legend()
                 mean_abs_error = trace[param_name]["mean_absolute_error"][case_idx]
-                plt.title(f"{model_name}: Case {case_idx} {actor_name} {param_name} MAE={mean_abs_error:.2f}")
+                plt.title(
+                    f"{model_name}: Case {case_idx} {actor_name} {param_name} MAE={mean_abs_error:.2f}"
+                )
 
                 # Save plot
                 if not os.path.exists(
@@ -189,7 +202,6 @@ def generate_scatterplots(model, trace, test_dataset, seq_len, pred_len, plots_d
                         f"No data for case {case_idx} {actor_name} {param_name}, skipping plots"
                     )
                 else:
-
                     # Setup plot
                     plt.figure(figsize=(6, 6))
                     # Set scatterplot range so x and y axes are the same
@@ -322,7 +334,9 @@ def plot_feature_importances(model, seq_len, plots_dir):
         # Plot coefficients for each actor
 
         indices = np.argsort(importances[0])[::-1]
-        fig, axs = plt.subplots(len(config.role_names), 1, figsize=(10, 15), sharey=True)
+        fig, axs = plt.subplots(
+            len(config.role_names), 1, figsize=(10, 15), sharey=True
+        )
         fig.suptitle(f"Regression coefficients for {param_name}")
         for actor_idx, actor_name in enumerate(config.role_names):
             actor_color = f"C{config.role_colors[actor_name]}"

@@ -1,9 +1,7 @@
 {
   "model_name": "MLP (128,64)",
   "base_model": "MLP",
-  "seq_len": 5,
-  "pred_len": 1,
-  "lr": 0.01,
+  "lr": 0.001,
   "batch_size": 32,
   "num_epochs": 20,
   "hidden_dims": [128, 64],

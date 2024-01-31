@@ -1,7 +1,5 @@
 {
   "base_model": "GaussianProcess",
   "model_name": "RationalQuadraticGaussianProcess",
-  "seq_len": 5,
-  "pred_len": 1,
   "kernel": "RationalQuadratic"
 }

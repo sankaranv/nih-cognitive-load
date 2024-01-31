@@ -1,8 +1,6 @@
 {
         "model_name": "ContinuousTransformer",
         "base_model": "ContinuousTransformer",
-        "seq_len": 5,
-        "pred_len": 1,
         "lr": 0.001,
         "batch_size": 32,
         "num_epochs": 20,

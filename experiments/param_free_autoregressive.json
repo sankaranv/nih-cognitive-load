@@ -1,3 +1,4 @@
 {
-  "model_name": "ParamFreeAutoregressive"
+  "model_name": "ParameterFreeAutoregressive",
+  "base_model": "ParameterFreeAutoregressive"
 }

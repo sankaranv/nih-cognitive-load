@@ -1,8 +1,6 @@
 {
   "model_name": "LSTM (128)",
   "base_model": "LSTM",
-  "seq_len": 5,
-  "pred_len": 1,
   "lr": 0.001,
   "batch_size": 32,
   "num_epochs": 20,

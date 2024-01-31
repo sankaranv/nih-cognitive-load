@@ -1,6 +1,12 @@
 from sklearn.linear_model import Ridge
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import Matern, WhiteKernel, ConstantKernel, RBF, RationalQuadratic
+from sklearn.gaussian_process.kernels import (
+    Matern,
+    WhiteKernel,
+    ConstantKernel,
+    RBF,
+    RationalQuadratic,
+)
 from xgboost import XGBRegressor
 from sklearn.kernel_ridge import KernelRidge
 from utils.config import config
@@ -35,16 +41,32 @@ class JointLinearModel:
                     n_jobs=-1,
                 )
             elif self.base_model == "GaussianProcess":
-                kernel=None
+                kernel = None
                 if "kernel" in self.model_config:
                     if self.model_config["kernel"] == "Matern":
-                        kernel = ConstantKernel() + Matern(length_scale=1, nu=1.5) + WhiteKernel(noise_level=1)
+                        kernel = (
+                            ConstantKernel()
+                            + Matern(length_scale=1, nu=1.5)
+                            + WhiteKernel(noise_level=1)
+                        )
                     elif self.model_config["kernel"] == "RBF":
-                        kernel = ConstantKernel() + RBF(length_scale=1) + WhiteKernel(noise_level=1)
+                        kernel = (
+                            ConstantKernel()
+                            + RBF(length_scale=1)
+                            + WhiteKernel(noise_level=1)
+                        )
                     elif self.model_config["kernel"] == "RationalQuadratic":
-                        kernel = ConstantKernel() + RationalQuadratic(length_scale=1, alpha=1) + WhiteKernel(noise_level=1)
+                        kernel = (
+                            ConstantKernel()
+                            + RationalQuadratic(length_scale=1, alpha=1)
+                            + WhiteKernel(noise_level=1)
+                        )
                 # Make GP with the given kernel
-                kernel = ConstantKernel() + Matern(length_scale=1, nu=1.5) + WhiteKernel(noise_level=1)
+                kernel = (
+                    ConstantKernel()
+                    + Matern(length_scale=1, nu=1.5)
+                    + WhiteKernel(noise_level=1)
+                )
                 self.models[param] = GaussianProcessRegressor(
                     kernel=kernel,
                     alpha=1e-10,
@@ -56,9 +78,13 @@ class JointLinearModel:
                 )
             elif self.base_model == "KernelRidge":
                 self.models[param] = KernelRidge(
-                    alpha=1.0, kernel="rbf", gamma=None, degree=3, coef0=1, kernel_params=None
+                    alpha=1.0,
+                    kernel="rbf",
+                    gamma=None,
+                    degree=3,
+                    coef0=1,
+                    kernel_params=None,
                 )
-
 
     def create_input_output_pairs(self, dataset, param):
         input_output_pairs = []
@@ -152,12 +178,12 @@ class JointLinearModel:
             self.models[param].fit(X, y)
         return trace
 
-    def predict(self, test_dataset, trace = None):
+    def predict(self, test_dataset, trace=None):
         if trace is None or len(trace) == 0:
             trace = {param: {} for param in config.param_names}
         # Predict HRV for each case and each param
         for param in config.param_names:
-            trace[param]["predictions"] =  {}
+            trace[param]["predictions"] = {}
             trace[param]["mean_squared_error"] = {}
             trace[param]["rms_error"] = {}
             trace[param]["mean_absolute_error"] = {}

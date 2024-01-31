@@ -1,6 +1,4 @@
 {
   "base_model": "Ridge",
-  "model_name": "Ridge",
-  "seq_len": 5,
-  "pred_len": 1
+  "model_name": "Ridge"
 }

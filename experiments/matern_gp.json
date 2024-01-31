@@ -1,7 +1,5 @@
 {
   "base_model": "GaussianProcess",
   "model_name": "MaternGaussianProcess",
-  "seq_len": 5,
-  "pred_len": 1,
   "kernel": "Matern"
 }
