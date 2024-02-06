@@ -36,8 +36,6 @@ with open(f"./{args.exp_dir}/{args.model}.json") as f:
 model_config["seq_len"] = args.seq_len
 model_config["pred_len"] = args.pred_len
 
-config.role_names = ["Surg"]
-
 # Set model type
 if model_config["base_model"] in ["MLP", "LSTM", "ContinuousTransformer"]:
     model_type = "JointNNModel"
