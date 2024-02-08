@@ -15,5 +15,7 @@ for file in "$experiments_folder"/*.json; do
     model_name=$(basename "$file" .json)
 
     # Run the Python script with the specified model name
-    python hrv_experiment.py --normalized --pad_phase_on --plots_dir plots/surg_only --exp_dir experiments --model "$model_name"
+    python hrv_experiment.py --normalized --pad_phase_on --plots_dir plots/per_case_norm/all_actors --exp_dir experiments --model "$model_name" --save
+    python hrv_experiment.py --standardized --pad_phase_on --plots_dir plots/global_norm/all_actors --exp_dir experiments --model "$model_name" --save
+    python hrv_experiment.py --standardized --test_time_unnorm --pad_phase_on --plots_dir plots/test_time_unnorm/all_actors --exp_dir experiments --model "$model_name" --save
 done

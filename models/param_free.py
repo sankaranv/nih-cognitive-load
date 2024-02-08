@@ -5,8 +5,8 @@ from utils.stats import compute_metrics
 
 class ParameterFreeAutoregressiveModel:
     def __init__(self, model_config):
-        self.seq_len = 1
-        self.pred_len = 1
+        self.seq_len = model_config["seq_len"]
+        self.pred_len = model_config["pred_len"]
         self.model_name = "ParameterFreeAutoregressiveModel"
 
     def contains_missing_data(self, dataset):
@@ -37,8 +37,10 @@ class ParameterFreeAutoregressiveModel:
                 param_idx = config.param_indices[param_name]
                 param_data = case_data[param_idx, :, 0, :].transpose()
                 # Use previous timestep to get the next timestep
-                y = param_data[1:]
-                predictions = param_data[:-1]
+                # Start making predictions from seq_len timestep onwards
+                predictions = param_data[self.seq_len - self.pred_len : -self.pred_len]
+                # Get ground truth
+                y = param_data[self.seq_len :]
                 trace[param_name]["predictions"][case_idx] = predictions
                 # Compute metrics
                 metrics = compute_metrics(y, predictions)

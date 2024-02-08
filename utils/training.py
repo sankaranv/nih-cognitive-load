@@ -138,6 +138,8 @@ def cross_validation(model_type, model_config, dataset, num_folds=5, verbose=Fal
                             )
 
     # Train model on full dataset, we can ignore trace
+    model_name = model_config["model_name"]
+    print(f"Training {model_name} model on full dataset")
     model = create_model(model_type, model_config)
     _ = model.train(dataset, verbose=False)
 

@@ -98,23 +98,8 @@ def plot_predictions(
                 else:
                     pred_hrv = case_predictions
 
-                # Trim off first seq_len elements
-                if len(pred_hrv) != num_timesteps:
-                    imputed_hrv = imputed_hrv[seq_len:]
-                    true_hrv = true_hrv[seq_len:]
-                    num_timesteps = num_timesteps - seq_len
-
-                # # Make sure both true and predicted HRV are same length (hack)
-                # diff = np.abs(true_hrv.shape[-1] - pred_hrv.shape[-1])
-                # if diff > 0:
-                #     if true_hrv.shape[-1] > pred_hrv.shape[-1]:
-                #         true_hrv = true_hrv[diff:]
-                #     else:
-                #         pred_hrv = pred_hrv[diff:]
-
-                # pred_hrv = np.concatenate(
-                #     (pred_hrv, case_predictions[-1, actor_idx].reshape(1))
-                # )
+                # Pad first seq_len elements with NaNs
+                pred_hrv = np.concatenate([np.full(seq_len, np.nan), pred_hrv], axis=0)
 
                 # Plot imputed HRV with dotted line
                 # Mask out elements where true data is not nan
@@ -139,7 +124,7 @@ def plot_predictions(
 
                 # Plot predicted HRV with solid colored line
                 plt.plot(
-                    np.arange(seq_len, num_timesteps + seq_len),
+                    np.arange(0, num_timesteps),
                     pred_hrv,
                     label=f"Predicted",
                     color=actor_color,

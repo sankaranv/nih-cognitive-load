@@ -505,6 +505,7 @@ def prune_actors(dataset, actors_to_keep=["Surg"]):
         new_dataset[case_id] = case_data
     return new_dataset
 
+
 def standardize_dataset(dataset):
     """
     For each parameter in the dataset, make the mean 0 and std 1 across all cases
@@ -515,38 +516,62 @@ def standardize_dataset(dataset):
     Returns:
 
     """
-    dataset_means = {role: 0 for role in config.role_names}
-    dataset_stds = {role: 0 for role in config.role_names}
-    samples = {role: None for role in config.role_names}
+    samples = {param: None for param in config.param_names}
     # Collect samples for each parameter
     for case_idx, case_data in dataset.items():
         for param_idx, param_data in enumerate(case_data):
-            # Concatenate along the sample dimension
-            role_name = config.role_names[param_idx]
-            if samples[role_name] is None:
-                samples[role_name] = param_data
+            param_name = config.param_names[param_idx]
+            # Concatenate samples across last axis
+            if samples[param_name] is None:
+                samples[param_name] = param_data
             else:
-                samples[role_name] = np.concatenate((samples[role_name], param_data), axis=-1)
-    # Compute dataset mean and variance
-    for role_name, role_data in samples.items():
-        dataset_means[role_name] = np.nanmean(role_data, axis=-1)
-        dataset_stds[role_name] = np.nanstd(role_data, axis=-1)
+                samples[param_name] = np.concatenate(
+                    (samples[param_name], param_data), axis=-1
+                )
+    # Compute dataset mean and variance for HRV only, which is first element in third dimension
+    # We want separate means and variances for each actor and parameter
+    # Shape of means should be (num_params, num_actors)
+    dataset_means = {param: None for param in config.param_names}
+    dataset_stds = {param: None for param in config.param_names}
+    for param_name, param_data in samples.items():
+        dataset_means[param_name] = np.nanmean(param_data[:, 0, :], axis=-1)
+        dataset_stds[param_name] = np.nanstd(param_data[:, 0, :], axis=-1)
+
     # Standardize dataset
     new_dataset = {}
     for case_idx, case_data in dataset.items():
         new_case_data = {}
         for param_idx, param_data in enumerate(case_data):
+            # Standardize HRV data only, which is first element in third dimension
+            # For each param, mean and std are of shape (num_actors,)
             param_name = config.param_names[param_idx]
-            new_case_data[param_name] = (param_data - dataset_means[param_name]) / dataset_stds[param_name]
-        new_dataset[case_idx] = new_case_data
+            new_case_data[param_name] = param_data
+            # Transpose to make it easier to broadcast (4, 8, 49) -> (8, 49, 4)
+            new_case_data[param_name] = np.transpose(
+                new_case_data[param_name], (1, 2, 0)
+            )
+            # Subtract mean from every row
+            new_case_data[param_name][0] -= dataset_means[param_name]
+            new_case_data[param_name][0] /= dataset_stds[param_name]
+            # Transpose back
+            new_case_data[param_name] = np.transpose(
+                new_case_data[param_name], (2, 0, 1)
+            )
+        # Concatenate samples across all params where each is (num_actors, num_features, num_samples)
+        # Result is (num_params, num_actors, num_features, num_samples)
+        all_param_data = np.array(
+            [new_case_data[param] for param in config.param_names]
+        )
+        new_dataset[case_idx] = all_param_data
     return new_dataset, dataset_means, dataset_stds
 
-def rescale_standardized_predictions(trace, param_means, param_stds):
-    # TODO - complete standardization
-    for case_idx, case_data in trace.items():
-        predictions = case_data["predictions"]
-        for param_name, param_data in case_data.items():
-            trace[case_idx][param_name] = param_data * param_stds[param_name] + param_means[param_name]
+
+def rescale_standardized_predictions(trace, dataset_means, dataset_stds):
+    for param_name, param_trace in trace.items():
+        for case_idx, case_predictions in param_trace["predictions"].items():
+            case_predictions = np.array(case_predictions)
+            case_predictions = (
+                case_predictions * dataset_stds[param_name] + dataset_means[param_name]
+            )
+            trace[param_name]["predictions"][case_idx] = case_predictions
     return trace
-
-
