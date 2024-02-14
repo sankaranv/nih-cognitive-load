@@ -575,3 +575,28 @@ def rescale_standardized_predictions(trace, dataset_means, dataset_stds):
             )
             trace[param_name]["predictions"][case_idx] = case_predictions
     return trace
+
+
+def binary_prediction_dataset(dataset, per_case_norm=True):
+    """
+    Change output vectors to binary vectors thresholding at +1 standard deviation
+    Args:
+        dataset:
+        per_case_norm:
+
+    Returns:
+
+    """
+    if per_case_norm:
+        for case_idx, case_data in dataset.items():
+            for param_idx, param_data in enumerate(case_data):
+                means = np.nanmean(param_data, axis=-1)
+                stds = np.nanstd(param_data, axis=-1)
+                threshold = means + stds
+                case_data[param_idx] = (case_data[param_idx] > threshold).astype(int)
+            dataset[case_idx] = case_data
+    else:
+        print(
+            f"Error: binary prediction task is only supported with per case normalization."
+        )
+        return dataset
