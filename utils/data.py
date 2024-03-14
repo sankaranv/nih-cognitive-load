@@ -577,7 +577,26 @@ def rescale_standardized_predictions(trace, dataset_means, dataset_stds):
     return trace
 
 
-def binary_prediction_dataset(dataset, per_case_norm=True):
+def remove_temporal_features(dataset):
+    """
+    Remove temporal features from dataset
+    Args:
+        dataset:
+
+    Returns:
+
+    """
+    new_dataset = {}
+    for case_idx, case_data in dataset.items():
+        new_case_data = {}
+        print(case_data.shape)
+        for param_idx, param_data in enumerate(case_data):
+            new_case_data[param_idx] = param_data[:1]
+        new_dataset[case_idx] = new_case_data
+    return new_dataset
+
+
+def binary_classification_dataset(dataset, per_case_norm=True):
     """
     Change output vectors to binary vectors thresholding at +1 standard deviation
     Args:
@@ -587,14 +606,20 @@ def binary_prediction_dataset(dataset, per_case_norm=True):
     Returns:
 
     """
+    new_dataset = {}
     if per_case_norm:
         for case_idx, case_data in dataset.items():
             for param_idx, param_data in enumerate(case_data):
-                means = np.nanmean(param_data, axis=-1)
-                stds = np.nanstd(param_data, axis=-1)
-                threshold = means + stds
-                case_data[param_idx] = (case_data[param_idx] > threshold).astype(int)
-            dataset[case_idx] = case_data
+                hrv_means = np.nanmean(param_data, axis=-1)[:, 0]
+                hrv_stds = np.nanstd(param_data, axis=-1)[:, 0]
+                threshold = hrv_means + hrv_stds
+                for actor_idx in range(param_data.shape[0]):
+                    case_data[param_idx][actor_idx, 0, :] = (
+                        case_data[param_idx][actor_idx, 0, :] > threshold[actor_idx]
+                    ).astype(int)
+            new_dataset[case_idx] = case_data
+        return new_dataset
+
     else:
         print(
             f"Error: binary prediction task is only supported with per case normalization."

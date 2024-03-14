@@ -1,4 +1,13 @@
 import torch
+
+from models.joint_linear import JointLinearRegressor, JointLinearClassifier
+from models.torch_model import JointNNRegressor, JointNNClassifier
+from models.param_free import (
+    ParameterFreeAutoregressiveModel,
+    ParameterFreeAutoregressiveClassifier,
+    RandomRegressionModel,
+)
+
 from utils.data import cv_split
 from utils.config import config
 
@@ -79,18 +88,20 @@ def predict(model, test_loader, device):
 
 
 def create_model(model_type, model_config):
-    if model_type == "JointLinear":
-        from models.joint_linear import JointLinearModel
-
-        model = JointLinearModel(model_config)
-    elif model_type == "ParameterFreeAutoregressive":
-        from models.param_free import ParameterFreeAutoregressiveModel
-
+    if model_type == "JointLinearRegressor":
+        model = JointLinearRegressor(model_config)
+    elif model_type == "JointLinearClassifier":
+        model = JointLinearClassifier(model_config)
+    elif model_type == "ParameterFreeAutoregressiveModel":
         model = ParameterFreeAutoregressiveModel(model_config)
-    elif model_type == "JointNNModel":
-        from models.torch_model import JointNNModel
-
-        model = JointNNModel(model_config)
+    elif model_type == "ParameterFreeAutoregressiveClassifier":
+        model = ParameterFreeAutoregressiveClassifier(model_config)
+    elif model_type == "JointNNRegressor":
+        model = JointNNRegressor(model_config)
+    elif model_type == "JointNNClassifier":
+        model = JointNNClassifier(model_config)
+    elif model_type == "RandomRegressor":
+        model = RandomRegressionModel(model_config)
     else:
         raise ValueError(f"Invalid model type: {model_type}")
     return model

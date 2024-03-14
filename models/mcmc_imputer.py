@@ -1,6 +1,5 @@
 import numpy as np
 from sklearn.linear_model import BayesianRidge
-
 from sklearn.model_selection import cross_val_score
 import pickle
 from utils.data import *

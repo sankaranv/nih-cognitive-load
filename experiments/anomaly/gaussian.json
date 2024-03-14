@@ -1,0 +1,7 @@
+{
+  "model_name": "DependencyNetwork",
+  "base_model": "BayesianRidge",
+  "burn_in": 100,
+  "max_iter": 100,
+  "n_estimators": 100
+}

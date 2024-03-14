@@ -3,13 +3,14 @@ from utils.data import (
     standardize_dataset,
     rescale_standardized_predictions,
 )
-from models.joint_linear import JointLinearModel
-from models.torch_model import JointNNModel
-from utils.training import cross_validation
+from models.joint_linear import JointLinearRegressor
+from models.torch_model import JointNNRegressor
+from utils.training import cross_validation, create_model
 from visualization.all_plots import *
 import argparse
 import json
 import pickle
+from visualization.explanations import shap_explain
 
 # Parse arguments
 parser = argparse.ArgumentParser()
@@ -27,6 +28,8 @@ parser.add_argument("--exp_dir", default="./experiments")
 parser.add_argument("--checkpoints_dir", default="./checkpoints")
 parser.add_argument("--plot", action="store_true")
 parser.add_argument("--save", action="store_true")
+parser.add_argument("--remove_temporal", action="store_true")
+parser.add_argument("--skip_cross_val", action="store_true")
 args = parser.parse_args()
 
 # Set random seed
@@ -43,11 +46,13 @@ model_config["pred_len"] = args.pred_len
 
 # Set model type
 if model_config["base_model"] in ["MLP", "LSTM", "ContinuousTransformer"]:
-    model_type = "JointNNModel"
-elif model_config["base_model"] == "ParameterFreeAutoregressive":
-    model_type = "ParameterFreeAutoregressive"
+    model_type = "JointNNRegressor"
+elif model_config["base_model"] == "ParameterFreeAutoregressiveModel":
+    model_type = "ParameterFreeAutoregressiveModel"
+elif model_config["base_model"] == "RandomRegressor":
+    model_type = "RandomRegressor"
 else:
-    model_type = "JointLinear"
+    model_type = "JointLinearRegressor"
 
 # Load dataset
 dataset, unimputed_dataset = load_dataset(
@@ -73,14 +78,32 @@ for case_idx in dataset.keys():
             [j for j in range(num_samples)]
         )
 
+# Remove temporal features
+if args.remove_temporal:
+    for case_idx in dataset.keys():
+        dataset[case_idx] = dataset[case_idx][:, :, 0, :]
+        unimputed_dataset[case_idx] = unimputed_dataset[case_idx][:, :, 0, :]
+        #  Add missing third dimension back
+        dataset[case_idx] = np.expand_dims(dataset[case_idx], axis=2)
+        unimputed_dataset[case_idx] = np.expand_dims(
+            unimputed_dataset[case_idx], axis=2
+        )
+
 # Train model using cross-validation and get trace
-model, trace = cross_validation(
-    model_type,
-    model_config,
-    dataset,
-    num_folds=5,
-    verbose=True,
-)
+if args.skip_cross_val:
+    # Train model on full dataset, we can ignore trace
+    model_name = model_config["model_name"]
+    print(f"Training {model_name} model on full dataset")
+    model = create_model(model_type, model_config)
+    trace = model.train(dataset, verbose=False)
+else:
+    model, trace = cross_validation(
+        model_type,
+        model_config,
+        dataset,
+        num_folds=5,
+        verbose=True,
+    )
 
 # Rescale standardized predictions
 if args.standardized and args.test_time_unnorm:
@@ -95,68 +118,102 @@ if args.standardized and args.test_time_unnorm:
 # Save model and trace
 if args.save:
     if args.normalized:
-        save_dir = f"{args.checkpoints_dir}/per_case_norm/"
+        save_dir = f"{args.checkpoints_dir}/per_case_norm"
     elif args.standardized:
         if args.test_time_unnorm:
-            save_dir = f"{args.checkpoints_dir}/test_time_unnorm/"
+            save_dir = f"{args.checkpoints_dir}/test_time_unnorm"
         else:
-            save_dir = f"{args.checkpoints_dir}/global_norm/"
+            save_dir = f"{args.checkpoints_dir}/global_norm"
     else:
-        save_dir = f"{args.checkpoints_dir}/raw_data/"
+        save_dir = f"{args.checkpoints_dir}/raw_data"
     if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+        os.makedirs(f"{save_dir}/models/")
+        os.makedirs(f"{save_dir}/traces/")
     with open(f"{save_dir}/models/{model.model_name}.pkl", "wb") as f:
         pickle.dump(model, f)
     with open(f"{save_dir}/traces/{model.model_name}_trace.pkl", "wb") as f:
         pickle.dump(trace, f)
 
+
+# Combine predictions from all cases in the trace into a single case
+# This is useful for plotting
+combined_trace = {param: {} for param in config.param_names}
+for param in config.param_names:
+    combined_trace[param]["predictions"] = {0: []}
+    for case_idx, case_data in trace[param]["predictions"].items():
+        combined_trace[param]["predictions"][0].append(case_data)
+    # Concat predictions
+    combined_trace[param]["predictions"][0] = np.concatenate(
+        combined_trace[param]["predictions"][0], axis=0
+    )
+print(combined_trace["Mean RR"]["predictions"][0].shape)
+
+# Combine dataset into a single case
+combined_dataset = {0: []}
+for case_idx, case_data in dataset.items():
+    combined_dataset[0].append(case_data[:, :, :, args.seq_len :])
+# Concatenate cases
+combined_dataset[0] = np.concatenate(combined_dataset[0], axis=-1)
+print(combined_dataset[0].shape)
+
+
 # Plot results
 if args.plot:
-    if isinstance(model, JointNNModel):
+    if isinstance(model, JointNNRegressor):
         print("Plotting loss curves")
         plot_loss_curves(model.model_name, trace, args.plots_dir)
 
-    print("Plotting predictions")
-    plot_predictions(
-        model.model_name,
-        trace,
-        dataset,
-        unimputed_dataset,
+    print(model.model_name, args.plots_dir)
+
+    # print("Plotting predictions")
+    # plot_predictions(
+    #     model.model_name,
+    #     trace,
+    #     dataset,
+    #     unimputed_dataset,
+    #     model.seq_len,
+    #     model.pred_len,
+    #     args.plots_dir,
+    # )
+    #
+    # print("Plotting correlation densities")
+    # eval_metric_density_plots(
+    #     model.model_name, trace, dataset, "corr_coef", args.plots_dir
+    # )
+    #
+    # print("Plotting MSE")
+    # eval_metric_density_plots(
+    #     model.model_name, trace, dataset, "mean_squared_error", args.plots_dir
+    # )
+    #
+    # print("Plotting RMS")
+    # eval_metric_density_plots(
+    #     model.model_name, trace, dataset, "rms_error", args.plots_dir
+    # )
+    #
+    # print("Plotting MAE")
+    # eval_metric_density_plots(
+    #     model.model_name, trace, dataset, "mean_absolute_error", args.plots_dir
+    # )
+    #
+    # print("Plotting R squared")
+    # eval_metric_density_plots(
+    #     model.model_name, trace, dataset, "r_squared", args.plots_dir
+    # )
+
+    print("Plotting scatterplots")
+    generate_scatterplots(
+        model,
+        combined_trace,
+        combined_dataset,
         model.seq_len,
         model.pred_len,
         args.plots_dir,
     )
 
-    print("Plotting correlation densities")
-    eval_metric_density_plots(
-        model.model_name, trace, dataset, "corr_coef", args.plots_dir
-    )
-
-    print("Plotting MSE")
-    eval_metric_density_plots(
-        model.model_name, trace, dataset, "mean_squared_error", args.plots_dir
-    )
-
-    print("Plotting RMS")
-    eval_metric_density_plots(
-        model.model_name, trace, dataset, "rms_error", args.plots_dir
-    )
-
-    print("Plotting MAE")
-    eval_metric_density_plots(
-        model.model_name, trace, dataset, "mean_absolute_error", args.plots_dir
-    )
-
-    print("Plotting R squared")
-    eval_metric_density_plots(
-        model.model_name, trace, dataset, "r_squared", args.plots_dir
-    )
-
-    print("Plotting scatterplots")
-    generate_scatterplots(
-        model, trace, dataset, model.seq_len, model.pred_len, args.plots_dir
-    )
-
-    if isinstance(model, JointLinearModel) and model.base_model == "Ridge":
+    if isinstance(model, JointLinearRegressor) and model.base_model == "Ridge":
         print("Plotting feature importances")
         plot_feature_importances(model, model.seq_len, args.plots_dir)
+
+    print("Plotting SHAP values")
+    shap_explain(model, dataset, model.seq_len, args.plots_dir)

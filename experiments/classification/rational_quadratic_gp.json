@@ -1,0 +1,5 @@
+{
+  "base_model": "GaussianProcessClassifier",
+  "model_name": "RationalQuadraticGaussianProcess",
+  "kernel": "RationalQuadratic"
+}

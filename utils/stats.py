@@ -3,7 +3,14 @@ import pandas as pd
 from utils.config import config
 
 
-def compute_metrics(y, predictions):
+def compute_regression_metrics(y, predictions):
+    # Add axis to predictions if they are 1D
+    predictions = (
+        np.expand_dims(predictions, axis=1)
+        if len(predictions.shape) == 1
+        else predictions
+    )
+
     metrics = {}
     # Compute mean squared error
     metrics["mean_squared_error"] = np.mean((y - predictions) ** 2)
@@ -15,6 +22,42 @@ def compute_metrics(y, predictions):
     metrics["r_squared"] = 1 - (
         np.sum((y - predictions) ** 2) / np.sum((y - np.mean(y)) ** 2)
     )
+    # Compute correlation coefficient for each actor
+    num_actors = y.shape[1]
+    metrics["corr_coef"] = np.zeros(num_actors)
+    for actor_idx in range(num_actors):
+        metrics["corr_coef"][actor_idx] = np.corrcoef(
+            y[:, actor_idx], predictions[:, actor_idx]
+        )[0, 1]
+    return metrics
+
+
+def compute_classification_metrics(y, predictions):
+    # Add axis to predictions if they are 1D
+    predictions = (
+        np.expand_dims(predictions, axis=1)
+        if len(predictions.shape) == 1
+        else predictions
+    )
+
+    metrics = {}
+    # Compute accuracy
+    metrics["accuracy"] = np.mean(y == predictions)
+    # Compute precision
+    metrics["precision"] = np.mean(
+        np.logical_and(y == 1, predictions == 1) / np.sum(predictions == 1)
+    )
+    # Compute recall
+    metrics["recall"] = np.mean(
+        np.logical_and(y == 1, predictions == 1) / np.sum(y == 1)
+    )
+    # Compute F1 score
+    metrics["f1_score"] = (
+        2
+        * (metrics["precision"] * metrics["recall"])
+        / (metrics["precision"] + metrics["recall"])
+    )
+
     # Compute correlation coefficient for each actor
     num_actors = y.shape[1]
     metrics["corr_coef"] = np.zeros(num_actors)

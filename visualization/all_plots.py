@@ -1,9 +1,60 @@
+import numpy as np
+
 from utils.data import *
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 from utils.config import config
 from tqdm import tqdm
+from sklearn.metrics import roc_curve
+
+
+def plot_roc_curve(model_name, trace, test_dataset, seq_len, plots_dir):
+    # Plot ROC curves per case
+    sns.set_style("whitegrid")
+    for case_idx, case_data in tqdm(test_dataset.items()):
+        for param_name in trace:
+            case_predictions = trace[param_name]["predictions"][case_idx]
+            for actor_idx, actor_name in enumerate(config.role_names):
+                actor_color = f"C{config.role_colors[actor_name]}"
+                param_idx = config.param_indices[param_name]
+                imputed_hrv = case_data[param_idx][actor_idx, 0, :]
+                num_timesteps = imputed_hrv.shape[-1]
+                plt.figure(figsize=(6, 6))
+
+                # Get predicted HRV
+                if len(case_predictions.shape) > 1:
+                    pred_hrv = case_predictions[:, actor_idx]
+                else:
+                    pred_hrv = case_predictions
+
+                # Cut off first seq_len elements from true data
+                true_hrv = imputed_hrv[seq_len:]
+
+                # Plot ROC curve
+                fpr, tpr, thresholds = roc_curve(
+                    true_hrv, pred_hrv, drop_intermediate=False
+                )
+                plt.plot(fpr, tpr, label=f"{actor_name}", color=actor_color)
+                plt.plot([0, 1], [0, 1], color="black", linestyle="--")
+                plt.xlabel("False Positive Rate")
+                plt.ylabel("True Positive Rate")
+
+                plt.legend()
+                accuracy = trace[param_name]["accuracy"][case_idx]
+                plt.title(
+                    f"{model_name}: Case {case_idx} {actor_name} {param_name} Acc={accuracy:.2f}"
+                )
+
+                # Save plot
+                if not os.path.exists(
+                    f"{plots_dir}/roc/{model_name}/Case{case_idx:02d}"
+                ):
+                    os.makedirs(f"{plots_dir}/roc/{model_name}/Case{case_idx:02d}")
+                plt.savefig(
+                    f"{plots_dir}/roc/{model_name}/Case{case_idx:02d}/{actor_name}_{param_name}.png"
+                )
+                plt.close()
 
 
 def eval_metric_density_plots(
@@ -28,6 +79,14 @@ def eval_metric_density_plots(
         metric_title = "Mean Absolute Error"
     elif metric_name == "r_squared":
         metric_title = "R Squared"
+    elif metric_name == "accuracy":
+        metric_title = "Accuracy"
+    elif metric_name == "precision":
+        metric_title = "Precision"
+    elif metric_name == "recall":
+        metric_title = "Recall"
+    elif metric_name == "f1_score":
+        metric_title = "F1 Score"
     else:
         print(f"Metric {metric_name} not supported")
         return
@@ -235,7 +294,7 @@ def generate_scatterplots(model, trace, test_dataset, seq_len, pred_len, plots_d
                         )
                     else:
                         plt.title(
-                            f"Case {case_idx} {actor_name} {param_name}: Corr={corr:.2f}, MSE={mse:.2f}"
+                            f"{model.model_name} {actor_name} {param_name}: Corr={corr:.2f}, MSE={mse:.2f}"
                         )
                     # Scatterplot of predicted vs true HRV on unimputed data
                     plt.scatter(
@@ -300,7 +359,7 @@ def plot_loss_curves(model_name, trace, plots_dir):
 
 def plot_feature_importances(model, seq_len, plots_dir):
     sns.set_style("whitegrid")
-    if model.__class__.__name__ != "JointLinearModel":
+    if model.__class__.__name__ != "JointLinearRegressor":
         print("Model is not a JointLinearModel, skipping feature importances")
         return
     for param_name in config.param_names:
