@@ -1,0 +1,8 @@
+{
+  "model_name": "DependencyNetwork",
+  "base_model": "RandomForestClassifier",
+  "burn_in": 0,
+  "max_iter": 50,
+  "n_estimators": 100,
+  "independent": false
+}

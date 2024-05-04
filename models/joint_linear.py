@@ -120,7 +120,6 @@ class JointLinearModel:
             print(f"Training {self.model_name} for {param}")
             X, y = self.create_train_dataset(train_dataset, param)
             self.models[param].fit(X, y)
-        c
 
 
 class JointLinearRegressor(JointLinearModel):

@@ -6,7 +6,7 @@ import numpy as np
 import random
 import torch
 import json
-from models.dependency_network import DependencyNetwork
+from models.vae import VAEAnomalyDetector
 from utils.data import load_dataset, discretize_by_percentiles
 from visualization.all_plots import *
 from utils.data import (
@@ -16,7 +16,6 @@ from utils.data import (
     prune_actors,
 )
 from utils.config import config
-from utils.training import anomaly_detection_eval
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -26,10 +25,10 @@ if __name__ == "__main__":
     parser.add_argument("--exp_dir", default="./experiments/anomaly")
     parser.add_argument("--time_interval", type=int, default=5)
     parser.add_argument("--normalized", default=True, action="store_true")
-    parser.add_argument("--seq_len", type=int, default=3)
+    parser.add_argument("--seq_len", type=int, default=5)
     parser.add_argument("--save_dataset", default=True, action="store_false")
     parser.add_argument("--pad_phase_on", action="store_true")
-    parser.add_argument("--model", default="random_forest")
+    parser.add_argument("--model", default="vae")
     parser.add_argument("--logging_freq", type=int, default=10)
     parser.add_argument("--verbose", default=False, action="store_true")
     parser.add_argument("--seed", type=int, default=42)
@@ -46,7 +45,6 @@ if __name__ == "__main__":
     with open(f"{args.exp_dir}/{args.model}.json") as f:
         model_config = json.load(f)
     model_config["seq_len"] = args.seq_len
-    model_name = model_config["model_name"]
 
     # Load dataset
     dataset, unimputed_dataset = load_dataset(
@@ -67,20 +65,33 @@ if __name__ == "__main__":
                 [j for j in range(num_samples)]
             )
 
-    if "DependencyNetwork" in model_name:
-        # Discretize
-        num_bins = 11
-        unimputed_discretized_dataset = discretize_by_percentiles(
-            unimputed_dataset, num_bins
-        )
-        dataset = discretize_by_percentiles(dataset, num_bins)
+    # Train VAE
+    vae = VAEAnomalyDetector(model_config)
+    trace = vae.train(dataset, verbose=False)
 
-    print(f"Running anomaly detection evaluation for {model_name}")
-    anomaly_detection_eval(
-        model_config,
+    # Save model
+    if not os.path.exists(args.model_dir):
+        os.makedirs(args.model_dir)
+    pickle.dump(vae, open(f"{args.model_dir}/{model_config['base_model']}.pkl", "wb"))
+
+    # Predict probabilities
+    probs = vae.predict_proba(dataset, trace=trace)
+
+    # Dump the probabilities to file
+    model_name = model_config["base_model"]
+    if not os.path.exists(f"{args.model_dir}/anomaly"):
+        os.makedirs(f"{args.model_dir}/anomaly")
+    with open(f"{args.model_dir}/anomaly/{model_name}_probs.pkl", "wb") as f:
+        pickle.dump(probs, f)
+
+    # Plot the dataset with predicted probabilities as colors
+    with open(f"{args.model_dir}/anomaly/{model_name}_probs.pkl", "rb") as f:
+        probs = pickle.load(f)
+    print("Loaded probs")
+    plot_anomalies(
         dataset,
-        num_anomalies=5,
-        seq_len=args.seq_len,
-        num_folds=5,
-        verbose=args.verbose,
+        probs,
+        model_config["base_model"],
+        args.seq_len,
+        f"{args.plots_dir}/{model_name}",
     )

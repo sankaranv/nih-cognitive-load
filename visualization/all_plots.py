@@ -6,7 +6,8 @@ import seaborn as sns
 import pandas as pd
 from utils.config import config
 from tqdm import tqdm
-from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_curve, auc
+import matplotlib.ticker as ticker
 
 
 def plot_roc_curve(model_name, trace, test_dataset, seq_len, plots_dir):
@@ -417,3 +418,163 @@ def plot_feature_importances(model, seq_len, plots_dir):
             f"{plots_dir}/feature_importances/{param_name}_feature_importance.png"
         )
         plt.close()
+
+
+def binning_line_plot(
+    normalized_original_dataset,
+    discretized_dataset,
+    num_bins,
+    plots_dir,
+    cmap="viridis",
+):
+    sns.set_style("whitegrid")
+    for case_idx, case_data in tqdm(discretized_dataset.items()):
+        for param_idx, param_data in enumerate(case_data):
+            param_name = config.param_names[param_idx]
+            discretized_samples = param_data[:, 0, :]
+            original_samples = (
+                normalized_original_dataset[case_idx][param_idx, :, 0, :] * num_bins
+            )
+            # Rescale normalized samples by number of bins
+            for actor_idx, actor_name in enumerate(config.role_names):
+                actor_color = f"C{config.role_colors[actor_name]}"
+                plt.figure(figsize=(10, 6))
+
+                # Plot discretized HRV with solid line
+                plt.scatter(
+                    np.arange(0, discretized_samples.shape[-1]),
+                    original_samples[actor_idx],
+                    c=discretized_samples[actor_idx],
+                    cmap=cmap,
+                )
+                # Plot a line connecting the points
+                plt.plot(
+                    np.arange(0, discretized_samples.shape[-1]),
+                    original_samples[actor_idx],
+                    color="gray",
+                    linewidth=0.5,
+                )
+                # Add colorbar
+                cbar = plt.colorbar()
+                cbar.set_label("Values")
+
+                # Set formatter for colorbar ticks to display only integers
+                cbar.ax.yaxis.set_major_formatter(
+                    ticker.FuncFormatter(lambda x, _: f"{int(x)}")
+                )
+
+                plt.title(
+                    f"Case {case_idx} {actor_name} {param_name} with discretization"
+                )
+                plt.xlabel("Time")
+                plt.ylabel("Normalized HRV parameter value")
+
+                # Save plot
+                if not os.path.exists(f"{plots_dir}/discretization/Case{case_idx:02d}"):
+                    os.makedirs(f"{plots_dir}/discretization/Case{case_idx:02d}")
+                plt.savefig(
+                    f"{plots_dir}/discretization/Case{case_idx:02d}/{actor_name}_{param_name}.png"
+                )
+                plt.close()
+
+
+def plot_anomalies(dataset, all_probs, model_name, seq_len, plots_dir):
+    sns.set_style("whitegrid")
+
+    # Get the maximum and minimum probabilities in the all_probs dict
+    prob_ranges = {param: [0, 0] for param in config.param_names}
+    for case_idx, case_data in dataset.items():
+        for param_idx, param_data in enumerate(case_data):
+            param_name = config.param_names[param_idx]
+            current_max = np.max(all_probs[case_idx][param_name])
+            current_min = np.min(all_probs[case_idx][param_name])
+            prob_ranges[param_name][0] = np.min(
+                [prob_ranges[param_name][0], current_min]
+            )
+            prob_ranges[param_name][1] = np.max(
+                [prob_ranges[param_name][1], current_max]
+            )
+
+    for case_idx, case_data in tqdm(dataset.items()):
+        for param_idx, param_data in enumerate(case_data):
+            param_name = config.param_names[param_idx]
+
+            # Plot anomalies
+            for actor_idx, actor_name in enumerate(config.role_names):
+                plt.figure(figsize=(10, 6))
+                samples = case_data[param_idx, actor_idx, 0, :]
+                probs = all_probs[case_idx][param_name][actor_idx]
+                # Pad first seq_len elements with NaNs
+                probs = np.concatenate([np.full(seq_len, np.nan), probs], axis=0)
+
+                # Rescale probabilities used for colors such that min and max are taken from prob_ranges
+                probs_rescaled = (probs - prob_ranges[param_name][0]) / (
+                    prob_ranges[param_name][1] - prob_ranges[param_name][0]
+                )
+
+                # Plot discretized HRV with solid line
+                plt.scatter(
+                    np.arange(0, samples.shape[-1]),
+                    samples,
+                    c=probs_rescaled,
+                    cmap="coolwarm_r",
+                )
+                # Plot a line connecting the points
+                plt.plot(
+                    np.arange(0, samples.shape[-1]),
+                    samples,
+                    color="gray",
+                    linewidth=0.5,
+                )
+                # Add colorbar with min and max using prob_ranges
+                cbar = plt.colorbar()
+                cbar.set_label("Probability")
+
+                plt.title(
+                    f"Case {case_idx} {actor_name} {param_name} with predicted probabilities"
+                )
+                plt.xlabel("Time")
+                plt.ylabel("Normalized HRV parameter value")
+
+                # Save plot
+                if not os.path.exists(
+                    f"{plots_dir}/anomaly/eval/{model_name}/Case{case_idx:02d}"
+                ):
+                    os.makedirs(
+                        f"{plots_dir}/anomaly/eval/{model_name}/Case{case_idx:02d}"
+                    )
+                plt.savefig(
+                    f"{plots_dir}/anomaly/eval/{model_name}/Case{case_idx:02d}/{actor_name}_{param_name}.png"
+                )
+                plt.close()
+
+
+def plot_anomaly_roc(test_probs, predictions, model_name, plots_dir):
+    # Plot ROC curves using the test probabilities and the predictions
+    for case_idx in test_probs.keys():
+        for param_idx, param_name in enumerate(config.param_names):
+            for actor_idx, actor_name in enumerate(config.role_names):
+                y_score = test_probs[case_idx][param_name][actor_idx]
+                y_true = predictions[case_idx][param_idx]
+                fpr, tpr, thresholds = roc_curve(y_true, y_score)
+                roc_auc = auc(fpr, tpr)
+                plt.figure()
+                plt.title(
+                    f"Case {case_idx} {actor_name} {param_name} ROC: AUC={roc_auc:.2f}"
+                )
+                plt.plot(fpr, tpr, color="darkorange", lw=2)
+                plt.plot([0, 1], [0, 1], color="black", lw=2, alpha=0.2, linestyle="--")
+                plt.xlim([0.0, 1.0])
+                plt.ylim([0.0, 1.05])
+                plt.xlabel("False Positive Rate")
+                plt.ylabel("True Positive Rate")
+                if not os.path.exists(
+                    f"{plots_dir}/anomaly/roc/{model_name}/Case{case_idx:02d}"
+                ):
+                    os.makedirs(
+                        f"{plots_dir}/anomaly/roc/{model_name}/Case{case_idx:02d}"
+                    )
+                plt.savefig(
+                    f"{plots_dir}/anomaly/roc/{model_name}/Case{case_idx:02d}/{case_idx}_{actor_name}_{param_name}.png"
+                )
+                plt.close()

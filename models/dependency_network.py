@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import BayesianRidge
 from utils.config import config
 import pickle
@@ -25,6 +25,8 @@ class DependencyNetwork:
             for actor in config.role_names:
                 if self.base_model == "BayesianRidge":
                     self.models[param][actor] = BayesianRidge()
+                elif self.base_model == "RandomForestClassifier":
+                    self.models[param][actor] = RandomForestClassifier()
 
     def load(self, filename):
         self.models = pickle.load(open(filename, "rb"))
@@ -48,7 +50,9 @@ class DependencyNetwork:
             open(f"{save_path}/anomaly/{model_name}_dependency_network.pkl", "wb"),
         )
 
-    def predict_proba(self, dataset, burn_in, max_iter, logging_freq=10, verbose=True):
+    def predict_proba(
+        self, dataset, burn_in, max_iter, logging_freq=100, verbose=False
+    ):
         if not self.trained:
             raise ValueError("Models are not trained, cannot do inference")
         print(f"Begin MCMC for {max_iter} iterations and {burn_in} burn-in")
@@ -66,12 +70,18 @@ class DependencyNetwork:
         for case_idx, case_data in tqdm(dataset.items()):
             for param_idx, param_data in enumerate(case_data):
                 param = config.param_names[param_idx]
+
                 # Shape of the data is (num_actors, num_features, num_timesteps)
                 for i in range(param_data.shape[-1] - self.seq_len):
                     # Take L timesteps as input vector
                     input_vector = param_data[:, :, i : i + self.seq_len]
+
                     # Take the next timestep as output vector
                     output_vector = param_data[:, :, i + self.seq_len]
+
+                    input_vector = np.copy(input_vector)
+                    output_vector = np.copy(output_vector)
+
                     prev_output_vector = np.zeros(output_vector.shape)
                     # Gibbs sampling for predicting probabilities
                     for t in range(max_iter + burn_in):
@@ -97,26 +107,42 @@ class DependencyNetwork:
                             )
                             actor_pred = self.models[param][actor].predict(
                                 input_vector_for_actor
+                            )[0]
+
+                            # Get the posterior probability distribution of the predicted value
+                            actor_prob_dist = self.models[param][actor].predict_proba(
+                                input_vector_for_actor
                             )
 
-                            # Get the posterior probability of the predicted value
+                            # Obtain the probability of the ground truth HRV instead of predicted HRV
+                            actual_hrv = int(output_vector[actor_idx, 0])
+                            if actual_hrv >= actor_prob_dist.shape[1]:
+                                actual_hrv = actor_prob_dist.shape[1] - 1
+                            # print(
+                            #     f"Predicted HRV: {actor_pred}, Actual HRV: {actual_hrv}, Shape: {actor_prob_dist.shape}"
+                            # )
+                            actor_prob = actor_prob_dist[0][actual_hrv]
+                            # print(
+                            #     f"Predicted HRV: {actor_pred}, Actual HRV: {actual_hrv}, Probability: {actor_prob}"
+                            # )
 
                             prev_output_vector[actor_idx] = output_vector[actor_idx]
-                            output_vector[actor_idx] = actor_prob[0]
+                            output_vector[actor_idx] = actor_prob
                             # Store samples after burn-in
-                            if t > burn_in:
-                                probs[case_idx][param][
-                                    actor_idx, i, t - burn_in
-                                ] = actor_prob[0]
+                            if t >= burn_in:
+                                probs[case_idx][param][actor_idx, i] = actor_prob
 
                         # Log progress
                         if t % logging_freq == 0 and verbose:
                             if t < burn_in:
-                                print(f"Case {case_idx} Timestep {i} Burn-in {t}")
+                                print(
+                                    f"Case {case_idx} {param} Timestep {i} Burn-in {t}"
+                                )
                             else:
                                 print(
-                                    f"Case {case_idx} Timestep {i} Iteration {t - burn_in}"
+                                    f"Case {case_idx} {param} Timestep {i} Iteration {t - burn_in}"
                                 )
+
                         # Check if values have converged and stop MCMC if so
                         if (
                             np.allclose(prev_output_vector, output_vector)
@@ -129,12 +155,19 @@ class DependencyNetwork:
                             #             actor_idx, i, j
                             #         ] = output_vector[actor_idx, 0]
                             break
+
+                # Check if integer
+                check = np.array_equal(
+                    param_data[:, 0, :], np.round(param_data[:, 0, :])
+                )
+                print(f"Case {case_idx} {param} is integer: {check}")
+
         if verbose:
             print("Predicted probabilities for HRV dataset")
 
         return probs
 
-    def train(self, dataset, verbose=True):
+    def train(self, dataset, verbose=True, cv=True):
         # Create input-output pairs for each parameter
         input_output_pairs = self.create_input_output_pairs(dataset)
         # Train models for each parameter
@@ -143,17 +176,18 @@ class DependencyNetwork:
                 X, y = self.get_individual_features(input_output_pairs, param, role)
                 self.models[param][role].fit(X, y)
                 # Cross validation
-                score = cross_val_score(
-                    self.models[param][role],
-                    X,
-                    y,
-                    cv=5,
-                    scoring="neg_mean_squared_error",
-                )
-                if verbose:
-                    print(
-                        f"Cross-validation MSE for {param} {role} model => Mean: {-score.mean():.4f} Max: {-score.min():.4f} Min: {-score.max():.4f}"
+                if cv:
+                    score = cross_val_score(
+                        self.models[param][role],
+                        X,
+                        y,
+                        cv=5,
+                        scoring="neg_mean_squared_error",
                     )
+                    if verbose:
+                        print(
+                            f"Cross-validation MSE for {param} {role} model => Mean: {-score.mean():.4f} Max: {-score.min():.4f} Min: {-score.max():.4f}"
+                        )
         self.trained = True
 
     def get_individual_features(self, input_output_pairs, param, role):
@@ -200,3 +234,85 @@ class DependencyNetwork:
                         assert np.all(~np.isnan(output_vector))
                         input_output_pairs[key].append((input_vector, output_vector))
         return input_output_pairs
+
+
+class IndependentComponentDependencyNetwork(DependencyNetwork):
+    def __init__(self, model_config):
+        super().__init__(model_config)
+
+    def predict_proba(
+        self, dataset, burn_in, max_iter, logging_freq=100, verbose=False
+    ):
+        if not self.trained:
+            raise ValueError("Models are not trained, cannot do inference")
+        # Object for collecting samples
+        probs = {}
+        for case_idx, case_data in dataset.items():
+            probs[case_idx] = {}
+            num_samples = case_data.shape[-1]
+            for param in config.param_names:
+                probs[case_idx][param] = np.zeros(
+                    (config.num_actors, num_samples - self.seq_len)
+                )
+
+        # Predict probabilities for each test point after first seq_len steps
+        for case_idx, case_data in tqdm(dataset.items()):
+            for param_idx, param_data in enumerate(case_data):
+                param = config.param_names[param_idx]
+                # Shape of the data is (num_actors, num_features, num_timesteps)
+                for i in range(param_data.shape[-1] - self.seq_len):
+                    # Take L timesteps as input vector
+                    input_vector = param_data[:, :, i : i + self.seq_len]
+                    input_vector = np.copy(input_vector)
+                    # Take the next timestep as output vector
+                    output_vector = param_data[:, :, i + self.seq_len]
+                    output_vector = np.copy(output_vector)
+                    prev_output_vector = np.zeros(output_vector.shape)
+
+                    # Sample each actor's HRV value from its conditional distribution
+                    for actor in config.role_names:
+                        actor_idx = config.role_colors[actor]
+                        # Add HRV features from remaining actors
+                        remaining_actors_data = np.delete(
+                            output_vector[:, 0].reshape(-1), actor_idx, axis=0
+                        )
+                        input_vector_for_actor = np.append(
+                            input_vector[:, 0, :].reshape(-1),
+                            remaining_actors_data.reshape(-1),
+                        )
+                        # Add temporal features
+                        input_vector_for_actor = np.append(
+                            input_vector_for_actor,
+                            output_vector[actor_idx][1:].reshape(-1),
+                        )
+                        # Predict value using regressor
+                        input_vector_for_actor = input_vector_for_actor.reshape(1, -1)
+                        actor_pred = self.models[param][actor].predict(
+                            input_vector_for_actor
+                        )[0]
+
+                        # Get the posterior probability distribution of the predicted value
+                        actor_prob_dist = self.models[param][actor].predict_proba(
+                            input_vector_for_actor
+                        )
+
+                        # Obtain the probability of the ground truth HRV instead of predicted HRV
+                        actual_hrv = int(output_vector[actor_idx, 0])
+                        if actual_hrv >= actor_prob_dist.shape[1]:
+                            actual_hrv = actor_prob_dist.shape[1] - 1
+                        # print(
+                        #     f"Predicted HRV: {actor_pred}, Actual HRV: {actual_hrv}, Shape: {actor_prob_dist.shape}"
+                        # )
+                        actor_prob = actor_prob_dist[0][actual_hrv]
+                        # print(
+                        #     f"Predicted HRV: {actor_pred}, Actual HRV: {actual_hrv}, Probability: {actor_prob}"
+                        # )
+
+                        prev_output_vector[actor_idx] = output_vector[actor_idx]
+                        output_vector[actor_idx] = actor_prob
+                        probs[case_idx][param][actor_idx, i] = actor_prob
+
+        if verbose:
+            print("Predicted probabilities for HRV dataset")
+
+        return probs

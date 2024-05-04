@@ -7,9 +7,15 @@ from models.param_free import (
     ParameterFreeAutoregressiveClassifier,
     RandomRegressionModel,
 )
-
-from utils.data import cv_split
+from models.gaussian_process import VariationalGP
+from models.dependency_network import (
+    DependencyNetwork,
+    IndependentComponentDependencyNetwork,
+)
+from utils.data import *
 from utils.config import config
+from visualization.all_plots import *
+from sklearn.metrics import roc_curve, auc
 
 
 def train(
@@ -102,6 +108,8 @@ def create_model(model_type, model_config):
         model = JointNNClassifier(model_config)
     elif model_type == "RandomRegressor":
         model = RandomRegressionModel(model_config)
+    elif model_type == "VariationalGP":
+        model = VariationalGP(model_config)
     else:
         raise ValueError(f"Invalid model type: {model_type}")
     return model
@@ -155,3 +163,90 @@ def cross_validation(model_type, model_config, dataset, num_folds=5, verbose=Fal
     _ = model.train(dataset, verbose=False)
 
     return model, combined_trace
+
+
+def anomaly_detection_eval(
+    model_config,
+    full_dataset,
+    num_anomalies=5,
+    seq_len=3,
+    num_folds=5,
+    verbose=False,
+):
+    model_dir = "./checkpoints"
+    plots_dir = "./plots"
+
+    # Create train, test, val splits
+    cv_splits = cv_split(full_dataset, num_folds=num_folds, val=False)
+    cv_traces = []
+    for i, (train_dataset, val_dataset, test_dataset) in enumerate(cv_splits):
+        print(f"Running CV split {i+1}")
+        print(f"Train cases: {train_dataset.keys()}")
+        print(f"Val cases: {val_dataset.keys()}")
+        print(f"Test cases: {test_dataset.keys()}")
+        model_name = model_config["model_name"]
+
+        # Train model and get probabilities
+        if model_config["independent"]:
+            model = IndependentComponentDependencyNetwork(model_config)
+        else:
+            model = DependencyNetwork(model_config)
+
+        model.train(train_dataset, cv=False, verbose=False)
+        model.save(model_dir)
+
+        # For each test case, sample num_anomalies points from the other test cases and swap them into random positions
+        predictions = {}
+        num_params = len(config.param_names)
+        test_cases = list(test_dataset.keys())
+        for case_idx in test_dataset.keys():
+            num_samples = test_dataset[case_idx].shape[-1]
+            test_sample_positions = np.arange(seq_len, num_samples)
+            predictions[case_idx] = np.ones((num_params, num_samples - seq_len))
+            for param_idx in range(num_params):
+                for _ in range(num_anomalies):
+                    # Obtain an anomaly sample
+                    anomaly_case = np.random.choice(
+                        [x for x in test_cases if x != case_idx]
+                    )
+                    anomaly_sample_positions = np.arange(
+                        seq_len, test_dataset[anomaly_case].shape[-1]
+                    )
+                    sample_idx = np.random.choice(anomaly_sample_positions)
+                    sample_val = test_dataset[anomaly_case][param_idx, :, 0, sample_idx]
+
+                    # Replace a random sample in the test case with the anomaly sample
+                    anomaly_pos = np.random.choice(test_sample_positions)
+                    test_dataset[case_idx][param_idx, :, 0, anomaly_pos] = sample_val
+                    predictions[case_idx][param_idx, anomaly_pos - seq_len] = 0
+
+        # Predict probabilities on the modified test dataset
+        print(f"Obtaining test set probabilities for CV split {i}")
+        test_probs = model.predict_proba(
+            test_dataset, model_config["burn_in"], model_config["max_iter"]
+        )
+
+        # for j in test_dataset.keys():
+        #     check = np.array_equal(
+        #         test_dataset[j][:, :, 0, :], np.round(test_dataset[j][:, :, 0, :])
+        #     )
+        #     print(f"Case {j} is integer: {check}")
+
+        if not os.path.exists(f"{model_dir}/anomaly/eval/{model_name}"):
+            os.makedirs(f"{model_dir}/anomaly/eval/{model_name}")
+        with open(f"{model_dir}/anomaly/eval/{model_name}/cv{i}_probs.pkl", "wb") as f:
+            pickle.dump(test_probs, f)
+
+        # Plot ROC curves for anomalies
+        print(f"Plotting ROC curves for CV split {i}")
+        plot_anomaly_roc(test_probs, predictions, model_name, plots_dir)
+
+        # Plot probabilities for each test case
+        print(f"Plotting probabilities for CV split {i}")
+        plot_anomalies(
+            test_dataset,
+            test_probs,
+            model_name,
+            seq_len,
+            plots_dir,
+        )

@@ -311,6 +311,7 @@ def cv_split(
     dataset,
     train_split: float = 0.8,
     num_folds=5,
+    val=False,
 ):
     cases = list(dataset.keys())
 
@@ -318,20 +319,27 @@ def cv_split(
     cv_splits = []
     num_test_cases_per_fold = ceil(len(cases) / num_folds)
     for i in range(num_folds):
-        test_case_ids = cases[
-            i * num_test_cases_per_fold : (i + 1) * num_test_cases_per_fold
-        ]
+        if i == num_folds - 1:
+            test_case_ids = cases[i * num_test_cases_per_fold :]
+        else:
+            test_case_ids = cases[
+                i * num_test_cases_per_fold : (i + 1) * num_test_cases_per_fold
+            ]
         rem_case_ids = [case_id for case_id in cases if case_id not in test_case_ids]
         random.shuffle(rem_case_ids)
-        train_idx = int(train_split * len(rem_case_ids))
-        # val_split = 1 - train_split
-        # val_idx = train_idx + int(val_split * len(rem_case_ids))
-        train_cases = rem_case_ids[:train_idx]
-        val_cases = rem_case_ids[train_idx:]
         test_cases = test_case_ids
-        train_dataset = {case: dataset[case] for case in train_cases}
-        val_dataset = {case: dataset[case] for case in val_cases}
-        test_dataset = {case: dataset[case] for case in test_cases}
+
+        if val:
+            train_idx = int(train_split * len(rem_case_ids))
+            val_cases = rem_case_ids[train_idx:]
+            train_cases = rem_case_ids[:train_idx]
+        else:
+            train_cases = rem_case_ids
+            val_cases = []
+
+        train_dataset = {case_idx: dataset[case_idx] for case_idx in train_cases}
+        val_dataset = {case_idx: dataset[case_idx] for case_idx in val_cases}
+        test_dataset = {case_idx: dataset[case_idx] for case_idx in test_cases}
         cv_splits.append((train_dataset, val_dataset, test_dataset))
 
     return cv_splits
@@ -625,3 +633,45 @@ def binary_classification_dataset(dataset, per_case_norm=True):
             f"Error: binary prediction task is only supported with per case normalization."
         )
         return dataset
+
+
+def discretize_by_percentiles(dataset, num_bins=10):
+    """
+    Aggregate all HRV values across all cases and actors and discretize them into bins
+    We do this separately for each parameter
+    Args:
+        dataset:
+
+    Returns:
+        new_dataset:
+    """
+
+    # Get all HRV values
+    # Shape of case data is (num_params, num_actors, num_features, num_samples)
+    all_hrv_values = {param: [] for param in config.param_names}
+    bins = {}
+    for case_idx, case_data in dataset.items():
+        for param_idx, param_data in enumerate(case_data):
+            hrv_values = param_data[:, 0, :].reshape(-1)
+            param_name = config.param_names[param_idx]
+            all_hrv_values[param_name].append(hrv_values)
+    # Concatenate all HRV values across all cases
+    for param_name in all_hrv_values.keys():
+        all_hrv_values[param_name] = np.concatenate(all_hrv_values[param_name], axis=-1)
+        # Remove NaN values
+        all_hrv_values[param_name] = all_hrv_values[param_name][
+            ~np.isnan(all_hrv_values[param_name])
+        ]
+        bins[param_name] = np.percentile(
+            all_hrv_values[param_name], np.linspace(0, 100, num_bins)
+        )
+    new_dataset = {}
+    for case_idx, case_data in dataset.items():
+        new_case_data = np.copy(case_data)
+        for param_idx, param_data in enumerate(case_data):
+            param_name = config.param_names[param_idx]
+            new_case_data[param_idx, :, 0, :] = (
+                np.digitize(param_data[:, 0, :], bins[param_name]) - 1
+            )
+        new_dataset[case_idx] = new_case_data
+    return new_dataset
