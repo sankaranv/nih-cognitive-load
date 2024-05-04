@@ -12,6 +12,7 @@ from models.dependency_network import (
     DependencyNetwork,
     IndependentComponentDependencyNetwork,
 )
+from models.conditional_vae import ConditionalVAEAnomalyDetector
 from utils.data import *
 from utils.config import config
 from visualization.all_plots import *
@@ -110,6 +111,12 @@ def create_model(model_type, model_config):
         model = RandomRegressionModel(model_config)
     elif model_type == "VariationalGP":
         model = VariationalGP(model_config)
+    elif model_type == "DependencyNetwork":
+        model = DependencyNetwork(model_config)
+    elif model_type == "IndependentComponentDependencyNetwork":
+        model = IndependentComponentDependencyNetwork(model_config)
+    elif model_type == "ConditionalVAEAnomalyDetector":
+        model = ConditionalVAEAnomalyDetector(model_config)
     else:
         raise ValueError(f"Invalid model type: {model_type}")
     return model
@@ -187,12 +194,9 @@ def anomaly_detection_eval(
         model_name = model_config["model_name"]
 
         # Train model and get probabilities
-        if model_config["independent"]:
-            model = IndependentComponentDependencyNetwork(model_config)
-        else:
-            model = DependencyNetwork(model_config)
+        model = create_model(model_config["model_name"], model_config)
 
-        model.train(train_dataset, cv=False, verbose=False)
+        model.train(train_dataset, verbose=verbose)
         model.save(model_dir)
 
         # For each test case, sample num_anomalies points from the other test cases and swap them into random positions
@@ -222,9 +226,7 @@ def anomaly_detection_eval(
 
         # Predict probabilities on the modified test dataset
         print(f"Obtaining test set probabilities for CV split {i}")
-        test_probs = model.predict_proba(
-            test_dataset, model_config["burn_in"], model_config["max_iter"]
-        )
+        test_probs, trace = model.predict_proba(test_dataset)
 
         # for j in test_dataset.keys():
         #     check = np.array_equal(

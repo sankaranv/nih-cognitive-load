@@ -14,6 +14,8 @@ class DependencyNetwork:
         self.model_name = model_config["model_name"]
         self.seq_len = model_config["seq_len"]
         self.model_config = model_config
+        self.burn_in = model_config["burn_in"]
+        self.max_iter = model_config["max_iter"]
         self.trained = False
         # Setup models
         self.models = {}
@@ -50,12 +52,10 @@ class DependencyNetwork:
             open(f"{save_path}/anomaly/{model_name}_dependency_network.pkl", "wb"),
         )
 
-    def predict_proba(
-        self, dataset, burn_in, max_iter, logging_freq=100, verbose=False
-    ):
+    def predict_proba(self, dataset, logging_freq=100, verbose=False):
         if not self.trained:
             raise ValueError("Models are not trained, cannot do inference")
-        print(f"Begin MCMC for {max_iter} iterations and {burn_in} burn-in")
+        print(f"Begin MCMC for {self.max_iter} iterations and {self.burn_in} burn-in")
         # Object for collecting samples
         probs = {}
         for case_idx, case_data in dataset.items():
@@ -67,6 +67,7 @@ class DependencyNetwork:
                 )
 
         # Predict probabilities for each test point after first seq_len steps
+        trace = {}
         for case_idx, case_data in tqdm(dataset.items()):
             for param_idx, param_data in enumerate(case_data):
                 param = config.param_names[param_idx]
@@ -84,7 +85,7 @@ class DependencyNetwork:
 
                     prev_output_vector = np.zeros(output_vector.shape)
                     # Gibbs sampling for predicting probabilities
-                    for t in range(max_iter + burn_in):
+                    for t in range(self.max_iter + self.burn_in):
                         # Sample each actor's HRV value from its conditional distribution
                         for actor in config.role_names:
                             actor_idx = config.role_colors[actor]
@@ -129,24 +130,24 @@ class DependencyNetwork:
                             prev_output_vector[actor_idx] = output_vector[actor_idx]
                             output_vector[actor_idx] = actor_prob
                             # Store samples after burn-in
-                            if t >= burn_in:
+                            if t >= self.burn_in:
                                 probs[case_idx][param][actor_idx, i] = actor_prob
 
                         # Log progress
                         if t % logging_freq == 0 and verbose:
-                            if t < burn_in:
+                            if t < self.burn_in:
                                 print(
                                     f"Case {case_idx} {param} Timestep {i} Burn-in {t}"
                                 )
                             else:
                                 print(
-                                    f"Case {case_idx} {param} Timestep {i} Iteration {t - burn_in}"
+                                    f"Case {case_idx} {param} Timestep {i} Iteration {t - self.burn_in}"
                                 )
 
                         # Check if values have converged and stop MCMC if so
                         if (
                             np.allclose(prev_output_vector, output_vector)
-                            and t > burn_in
+                            and t > self.burn_in
                         ):
                             # # Pad the rest of the samples with the last value
                             # for j in range(t - burn_in, max_iter):
@@ -165,7 +166,7 @@ class DependencyNetwork:
         if verbose:
             print("Predicted probabilities for HRV dataset")
 
-        return probs
+        return probs, trace
 
     def train(self, dataset, verbose=True, cv=True):
         # Create input-output pairs for each parameter
@@ -240,9 +241,7 @@ class IndependentComponentDependencyNetwork(DependencyNetwork):
     def __init__(self, model_config):
         super().__init__(model_config)
 
-    def predict_proba(
-        self, dataset, burn_in, max_iter, logging_freq=100, verbose=False
-    ):
+    def predict_proba(self, dataset, logging_freq=100, verbose=False):
         if not self.trained:
             raise ValueError("Models are not trained, cannot do inference")
         # Object for collecting samples
@@ -256,6 +255,7 @@ class IndependentComponentDependencyNetwork(DependencyNetwork):
                 )
 
         # Predict probabilities for each test point after first seq_len steps
+        trace = {}
         for case_idx, case_data in tqdm(dataset.items()):
             for param_idx, param_data in enumerate(case_data):
                 param = config.param_names[param_idx]
@@ -315,4 +315,4 @@ class IndependentComponentDependencyNetwork(DependencyNetwork):
         if verbose:
             print("Predicted probabilities for HRV dataset")
 
-        return probs
+        return probs, trace

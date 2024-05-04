@@ -6,7 +6,6 @@ import numpy as np
 import random
 import torch
 import json
-from models.dependency_network import DependencyNetwork
 from utils.data import load_dataset, discretize_by_percentiles
 from visualization.all_plots import *
 from utils.data import (
@@ -46,6 +45,7 @@ if __name__ == "__main__":
     with open(f"{args.exp_dir}/{args.model}.json") as f:
         model_config = json.load(f)
     model_config["seq_len"] = args.seq_len
+    model_config["pred_len"] = 1
     model_name = model_config["model_name"]
 
     # Load dataset
@@ -82,5 +82,5 @@ if __name__ == "__main__":
         num_anomalies=5,
         seq_len=args.seq_len,
         num_folds=5,
-        verbose=args.verbose,
+        verbose=True,
     )

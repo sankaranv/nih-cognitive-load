@@ -1,8 +1,0 @@
-{
-  "model_name": "VAE",
-  "base_model": "VAEAnomalyDetector",
-  "lr": 0.01,
-  "batch_size": 1,
-  "num_epochs": 10,
-  "hidden_dim": 128
-}

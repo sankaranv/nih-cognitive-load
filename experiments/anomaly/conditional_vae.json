@@ -1,0 +1,10 @@
+{
+  "model_name": "ConditionalVAEAnomalyDetector",
+  "base_model": "ConditionalVAEAnomalyDetector",
+  "lr": 0.01,
+  "batch_size": 1,
+  "num_epochs": 10,
+  "encoder_dims": [128],
+  "latent_dim": 16,
+  "decoder_dims": [128]
+}

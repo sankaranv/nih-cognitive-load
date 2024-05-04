@@ -1,8 +1,6 @@
 {
   "model_name": "IndependentComponentsDependencyNetwork",
   "base_model": "RandomForestClassifier",
-  "burn_in": 0,
-  "max_iter": 3,
   "n_estimators": 100,
   "independent": true
 }
