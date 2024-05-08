@@ -3,10 +3,14 @@
 This repo includes imputation models, time-series prediction models, and anomaly detection models.
 
 `python hrv_prediction.py --model model_config_name`
+
 `python anomaly_detection.py --model model_config_name`
+
 `python impute_data.py`
 
-See the scripts for additional options. The model configs are written in JSON format and can be found in the `experiments/` folder; additional experiments can be run by writing JSON files in the same format. 
+See the scripts for additional options. The model configs are written in JSON format and can be found in the `experiments/` folder; additional experiments can be run by writing JSON files in the same format. Dataset should be placed in the `data/` folder, and plots will be generated in the `plots/` folder. 
+
+Team members are Anes, Nurs, Surg, and Perf, all models consider phases 2, 3, 4, 5, and 6, and all cases that are not CABG are pruned out. These can be adjusted in `config.json`.
 
 ### Time-series Prediction
 - Transformer with continuous-valued inputs
