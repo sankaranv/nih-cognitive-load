@@ -12,7 +12,7 @@ See the scripts for additional options. The model configs are written in JSON fo
 
 Team members are Anes, Nurs, Surg, and Perf, all models consider phases 2, 3, 4, 5, and 6, and all cases that are not CABG are pruned out. These can be adjusted in `config.json`.
 
-### Time-series Prediction
+### Time-Series Prediction
 - Transformer with continuous-valued inputs
 - LSTM
 - Gaussian Processes with RBF, Rational Quadratic, and Matern kernels
