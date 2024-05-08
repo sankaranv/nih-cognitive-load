@@ -81,25 +81,27 @@ class ConditionalVAE(nn.Module):
     def forward(self, x, history):
         # x dim is (batch_size, num_features, pred_len) where num_features = num_actors + num_temporal_features
         # Encoder input x should be (batch_size, num_actors * self.pred_len)
-        batch_size = x.shape[0]
-        num_actors = config.num_actors
-        hrv_in = x[:, 0:num_actors, :].reshape(batch_size, -1)
-        temporal_in = x[:, num_actors:, -1].reshape(batch_size, -1)
-        x = torch.cat((hrv_in, temporal_in), dim=1)
+
+        # print(x.shape, history.shape)
+        # batch_size = x.shape[0]
+        # num_actors = config.num_actors
+        # hrv_in = x[:, 0:num_actors, :].reshape(batch_size, -1)
+        # temporal_in = x[:, num_actors:, -1].reshape(batch_size, -1)
+        # x = torch.cat((hrv_in, temporal_in), dim=1)
 
         # history is (batch_size, num_features, seq_len) where num_features = num_actors + num_temporal_features
         # Encoder input history should be (batch_size, num_actors * self.seq_len)
         # We use temporal features from the last timestep
-        hrv_history = history[:, 0:num_actors, :].reshape(batch_size, -1)
-        temporal_history = history[:, num_actors:, -1].reshape(batch_size, -1)
-        history = torch.cat((hrv_history, temporal_history), dim=1)
+        # hrv_history = history[:, 0:num_actors, :].reshape(batch_size, -1)
+        # temporal_history = history[:, num_actors:, -1].reshape(batch_size, -1)
+        # history = torch.cat((hrv_history, temporal_history), dim=1)
 
         mu, logvar = self.encoder(x, history)
         z = self.reparameterize(mu, logvar)
         out = self.decoder(z, history)
 
         # Reshape output to (batch_size, num_actors, pred_len)
-        out = out.view(batch_size, num_actors, self.pred_len)
+        # out = out.view(batch_size, num_actors, self.pred_len)
         return out, mu, logvar
 
 
@@ -110,6 +112,7 @@ class ConditionalVAEAnomalyDetector:
         self.seq_len = model_config["seq_len"]
         self.pred_len = model_config["pred_len"]
         self.num_epochs = model_config["num_epochs"]
+        self.tol = model_config["tol"]
         self.model_config = model_config
         self.setup_models()
 
@@ -152,6 +155,7 @@ class ConditionalVAEAnomalyDetector:
                 param,
                 self.model_config["batch_size"],
                 shuffle=True,
+                anomaly_detection=True,
             )
             if val_dataset is not None:
                 val_loader = create_torch_loader_from_dataset(
@@ -161,12 +165,14 @@ class ConditionalVAEAnomalyDetector:
                     param,
                     self.model_config["batch_size"],
                     shuffle=False,
+                    anomaly_detection=True,
                 )
             else:
                 val_loader = None
 
             # Train each model
             trace[param] = {"train_loss": [], "val_loss": []}
+            prev_loss = float("inf")
             for epoch in range(self.num_epochs):
                 self.models[param].train()
                 train_loss = 0
@@ -198,6 +204,11 @@ class ConditionalVAEAnomalyDetector:
                             ).item()
                     val_loss /= len(val_loader.dataset)
                     trace[param]["val_loss"].append(val_loss)
+                    # Early stopping
+                    if np.abs(val_loss - prev_loss) < self.tol:
+                        print(f"Stopping early at epoch {epoch + 1}")
+                        break
+                    prev_loss = val_loss
                     if verbose:
                         print(
                             f"Epoch {epoch + 1}: Train Loss: {train_loss}, Val Loss: {val_loss}"
@@ -205,7 +216,11 @@ class ConditionalVAEAnomalyDetector:
                 else:
                     if verbose:
                         print(f"Epoch {epoch + 1}: Train Loss: {train_loss}")
-
+                    # Early stopping
+                    if np.abs(train_loss - prev_loss) < self.tol:
+                        print(f"Stopping early at epoch {epoch + 1}")
+                        break
+                    prev_loss = train_loss
         return trace
 
     def predict_proba(self, dataset):
@@ -230,6 +245,7 @@ class ConditionalVAEAnomalyDetector:
                 param,
                 self.model_config["batch_size"],
                 shuffle=False,
+                anomaly_detection=True,
             )
 
             # Obtain probabilities
@@ -249,11 +265,11 @@ class ConditionalVAEAnomalyDetector:
 
                     # Get negative log likelihood of each target
                     num_samples += history.shape[0]
-                    log_probs = F.mse_loss(output, target, reduction="none")
-                    log_probs = log_probs.view(-1).cpu()
-                    print(log_probs.shape)
+                    log_probs = -F.mse_loss(output, target, reduction="none")
+                    log_probs = log_probs.view(-1)
                     probs_list_per_param.append(log_probs.cpu().numpy())
 
+            probs_list_per_param = np.array(probs_list_per_param)
             test_loss /= len(test_loader.dataset)
             trace[param]["test_loss"] = test_loss
 
@@ -261,9 +277,9 @@ class ConditionalVAEAnomalyDetector:
             idx = 0
             for case_idx, case_data in dataset.items():
                 num_samples = case_data.shape[-1]
-                probs[case_idx][param] = np.array(probs_list_per_param)[
-                    :, idx : idx + num_samples - self.seq_len
-                ]
+                probs[case_idx][param] = probs_list_per_param[
+                    idx : idx + num_samples - self.seq_len
+                ].transpose()
                 idx += num_samples - self.seq_len
 
         return probs, trace

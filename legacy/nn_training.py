@@ -7,10 +7,11 @@ from torch.utils.data import DataLoader
 import pickle
 import random
 from utils.create_batches import make_train_test_split, HRVDataset
-from models.hrv_transformer import ContinuousTransformer
+from models.transformer import ContinuousTransformer
 import sys
 import matplotlib.pyplot as plt
 from visualization.torch_plots import plot_predictions, generate_scatterplots
+
 
 def predict(model, test_loader, device):
     model.eval()
@@ -23,8 +24,8 @@ def predict(model, test_loader, device):
     predictions = torch.cat(predictions, dim=0)
     return predictions
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
 
@@ -34,17 +35,15 @@ if __name__ == "__main__":
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    dataset = pickle.load(
-            open("checkpoints/dataset/imputed_dataset.pkl", "rb")
-        )
+    dataset = pickle.load(open("checkpoints/dataset/imputed_dataset.pkl", "rb"))
 
     # Create unimputed dataset
-    unimputed_dataset = pickle.load(
-            open("checkpoints/dataset/dataset.pkl", "rb")
-        )
+    unimputed_dataset = pickle.load(open("checkpoints/dataset/dataset.pkl", "rb"))
 
     # Create train, test, val splits
-    train_dataset, val_dataset, test_dataset = make_train_test_split(dataset, 0.8, 0.1, 0.1)
+    train_dataset, val_dataset, test_dataset = make_train_test_split(
+        dataset, 0.8, 0.1, 0.1
+    )
 
     # Create dataloaders
     seq_len = 10
@@ -84,7 +83,6 @@ if __name__ == "__main__":
     num_epochs = 10
     for epoch in range(num_epochs):
         for i, (inputs, targets) in enumerate(train_loader):
-
             # Forward pass
             inputs = inputs.to(device)
             targets = targets.to(device)
@@ -109,7 +107,9 @@ if __name__ == "__main__":
             loss.backward()
             optimizer.step()
             if i % 10 == 0:
-                print(f"Epoch {epoch}, step {i}, train loss {loss.item()}, val loss {val_loss.item()}")
+                print(
+                    f"Epoch {epoch}, step {i}, train loss {loss.item()}, val loss {val_loss.item()}"
+                )
 
     # Get test loss
     test_loss = 0
@@ -128,7 +128,6 @@ if __name__ == "__main__":
 
     # Get predictions
     predictions = predict(model, test_loader, device)
-
 
     # Plot train and val losses
     plt.figure(figsize=(10, 6))
@@ -156,10 +155,12 @@ if __name__ == "__main__":
 
     # Plot scatterplots
     print("Plotting scatterplots")
-    generate_scatterplots(model=model,
-                    param_name=param,
-                    seq_len=args.seq_len,
-                    pred_len=args.pred_len,
-                    predictions=predictions,
-                    test_dataset=unimputed_test_dataset,
-                    plots_dir="./plots/5min/scatterplots/transformer")
+    generate_scatterplots(
+        model=model,
+        param_name=param,
+        seq_len=args.seq_len,
+        pred_len=args.pred_len,
+        predictions=predictions,
+        test_dataset=unimputed_test_dataset,
+        plots_dir="./plots/5min/scatterplots/transformer",
+    )

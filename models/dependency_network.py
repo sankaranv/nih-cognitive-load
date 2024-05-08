@@ -14,8 +14,9 @@ class DependencyNetwork:
         self.model_name = model_config["model_name"]
         self.seq_len = model_config["seq_len"]
         self.model_config = model_config
-        self.burn_in = model_config["burn_in"]
-        self.max_iter = model_config["max_iter"]
+        if not model_config["independent"]:
+            self.burn_in = model_config["burn_in"]
+            self.max_iter = model_config["max_iter"]
         self.trained = False
         # Setup models
         self.models = {}
@@ -168,7 +169,7 @@ class DependencyNetwork:
 
         return probs, trace
 
-    def train(self, dataset, verbose=True, cv=True):
+    def train(self, dataset, verbose=True, cv=False):
         # Create input-output pairs for each parameter
         input_output_pairs = self.create_input_output_pairs(dataset)
         # Train models for each parameter
@@ -241,7 +242,21 @@ class IndependentComponentDependencyNetwork(DependencyNetwork):
     def __init__(self, model_config):
         super().__init__(model_config)
 
-    def predict_proba(self, dataset, logging_freq=100, verbose=False):
+    def get_individual_features(self, input_output_pairs, param, role):
+        # Create training data by concatenating remaining features to the existing input vector
+        X = []
+        y = []
+        actor_idx = config.role_colors[role]
+        for sample in input_output_pairs[param]:
+            target = sample[1][actor_idx][0]
+            input_vector = sample[0][:, 0, :].reshape(-1)
+            # Add temporal features
+            input_vector = np.append(input_vector, sample[1][actor_idx][1:].reshape(-1))
+            X.append(input_vector)
+            y.append(target)
+        return np.array(X), np.array(y)
+
+    def predict_proba(self, dataset, verbose=False):
         if not self.trained:
             raise ValueError("Models are not trained, cannot do inference")
         # Object for collecting samples
@@ -272,14 +287,7 @@ class IndependentComponentDependencyNetwork(DependencyNetwork):
                     # Sample each actor's HRV value from its conditional distribution
                     for actor in config.role_names:
                         actor_idx = config.role_colors[actor]
-                        # Add HRV features from remaining actors
-                        remaining_actors_data = np.delete(
-                            output_vector[:, 0].reshape(-1), actor_idx, axis=0
-                        )
-                        input_vector_for_actor = np.append(
-                            input_vector[:, 0, :].reshape(-1),
-                            remaining_actors_data.reshape(-1),
-                        )
+                        input_vector_for_actor = input_vector[:, 0, :].reshape(-1)
                         # Add temporal features
                         input_vector_for_actor = np.append(
                             input_vector_for_actor,

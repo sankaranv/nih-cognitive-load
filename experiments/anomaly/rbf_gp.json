@@ -1,0 +1,6 @@
+{
+  "model_name": "RBFGaussianProcess",
+  "base_model": "GaussianProcessAnomalyDetector",
+  "kernel": "rbf",
+  "independent": true
+}

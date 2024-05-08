@@ -112,11 +112,64 @@ class HRVDataset(Dataset):
         return self.input_output_pairs[idx]
 
 
+class HRVAnomalyDetectionDataset(HRVDataset):
+    def __init__(self, dataset, seq_len, pred_len, param):
+        super().__init__(dataset, seq_len, pred_len, param)
+
+    def create_input_output_pairs(self, sequences):
+        """
+        Create input-output pairs for each sequence in the dataset
+        Inputs are of shape (num_actors * seq_len + num_temporal_features - 1)
+        Outputs are of shape (num_actors * pred_len)
+        Args:
+            sequences: List of sequences of shape (4, num_features, seq_len)
+
+        Returns:
+            List of input-output pairs, where each pair is a tuple of (inputs, outputs)
+        """
+        input_output_pairs = []
+        for case_id, sequence in sequences:
+            case_seq_length = sequence.shape[-1]
+            assert case_seq_length >= self.seq_len + self.pred_len, (
+                f"Cannot create input-output pairs for sequence of length {case_seq_length} "
+                f"using seq_len {self.seq_len} and pred_len {self.pred_len}"
+            )
+            for i in range(case_seq_length - self.seq_len - self.pred_len + 1):
+                # Crop out only the actors from the config
+                actors = [config.role_colors[role] for role in config.role_names]
+                input_features = sequence[actors, :, i : i + self.seq_len]
+                output_features = sequence[
+                    actors, :, i + self.seq_len : i + self.seq_len + self.pred_len
+                ]
+                # Input features are of shape (num_actors * seq_len +  num_features - 1)
+                # First component of second dim is HRV value, remaining are temporal features
+                # Take temporal features of the most recent timestep in pred_len
+                input_hrv_values = input_features[:, 0, :].reshape(
+                    -1,
+                )
+                temporal_features = output_features[0, 1:, -1].reshape(-1)
+                # Concatenate to get input of shape (num_actors + num_features - 1, seq_len)
+                inputs = torch.cat((input_hrv_values, temporal_features), dim=0)
+
+                # For outputs, we just want 4 HRV values
+                target = output_features[:, 0, :].reshape(-1)
+                # Shape of inputs is now (14, 90)
+                input_output_pairs.append((inputs, target))
+        # Convert to torch tensors
+        input_output_pairs = [
+            (torch.Tensor(x), torch.Tensor(y)) for x, y in input_output_pairs
+        ]
+        return input_output_pairs
+
+
 def create_torch_loader_from_dataset(
-    dataset, seq_len, pred_len, param, batch_size, shuffle=True
+    dataset, seq_len, pred_len, param, batch_size, shuffle=True, anomaly_detection=False
 ):
     # Create train, test, val splits
-    hrv_dataset = HRVDataset(dataset, seq_len, pred_len, param)
+    if anomaly_detection:
+        hrv_dataset = HRVAnomalyDetectionDataset(dataset, seq_len, pred_len, param)
+    else:
+        hrv_dataset = HRVDataset(dataset, seq_len, pred_len, param)
     data_loader = DataLoader(hrv_dataset, batch_size=batch_size, shuffle=shuffle)
     return data_loader
 

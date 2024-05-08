@@ -317,7 +317,7 @@ def cv_split(
 
     # Generate cross validation splits in the specified ratio
     cv_splits = []
-    num_test_cases_per_fold = ceil(len(cases) / num_folds)
+    num_test_cases_per_fold = len(cases) // num_folds
     for i in range(num_folds):
         if i == num_folds - 1:
             test_case_ids = cases[i * num_test_cases_per_fold :]

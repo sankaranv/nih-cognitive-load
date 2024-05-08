@@ -549,32 +549,76 @@ def plot_anomalies(dataset, all_probs, model_name, seq_len, plots_dir):
                 plt.close()
 
 
-def plot_anomaly_roc(test_probs, predictions, model_name, plots_dir):
+def plot_anomaly_roc(
+    test_probs, predictions, model_name, plots_dir, per_case=False, cv_idx=None
+):
     # Plot ROC curves using the test probabilities and the predictions
-    for case_idx in test_probs.keys():
-        for param_idx, param_name in enumerate(config.param_names):
-            for actor_idx, actor_name in enumerate(config.role_names):
+    for param_idx, param_name in enumerate(config.param_names):
+        if not per_case:
+            y_score_all_cases = {actor_name: [] for actor_name in config.role_names}
+            y_true_all_cases = {actor_name: [] for actor_name in config.role_names}
+
+        for actor_idx, actor_name in enumerate(config.role_names):
+            for case_idx in test_probs.keys():
                 y_score = test_probs[case_idx][param_name][actor_idx]
                 y_true = predictions[case_idx][param_idx]
-                fpr, tpr, thresholds = roc_curve(y_true, y_score)
+                if not per_case:
+                    y_score_all_cases[actor_name].extend(y_score)
+                    y_true_all_cases[actor_name].extend(y_true)
+                else:
+                    fpr, tpr, thresholds = roc_curve(
+                        y_true, y_score, drop_intermediate=False
+                    )
+                    roc_auc = auc(fpr, tpr)
+                    plt.figure()
+                    if "DependencyNetwork" in model_name:
+                        model_name = "DependencyNetwork"
+                    plt.title(
+                        f"Case {case_idx} {actor_name} {param_name} {model_name} ROC: AUC={roc_auc:.2f}"
+                    )
+                    plt.plot(fpr, tpr, color=f"C{config.role_colors[actor_name]}", lw=2)
+                    plt.plot(
+                        [0, 1], [0, 1], color="black", lw=2, alpha=0.2, linestyle="--"
+                    )
+                    plt.xlim([0.0, 1.0])
+                    plt.ylim([0.0, 1.05])
+                    plt.xlabel("False Positive Rate")
+                    plt.ylabel("True Positive Rate")
+                    if not os.path.exists(
+                        f"{plots_dir}/anomaly/roc/{model_name}/Case{case_idx:02d}"
+                    ):
+                        os.makedirs(
+                            f"{plots_dir}/anomaly/roc/{model_name}/Case{case_idx:02d}"
+                        )
+                    plt.savefig(
+                        f"{plots_dir}/anomaly/roc/{model_name}/Case{case_idx:02d}/{case_idx}_{actor_name}_{param_name}.png"
+                    )
+                    plt.close()
+            if not per_case:
+                if cv_idx is None:
+                    cv_idx = 0
+                fpr, tpr, thresholds = roc_curve(
+                    y_true_all_cases[actor_name],
+                    y_score_all_cases[actor_name],
+                    drop_intermediate=False,
+                )
                 roc_auc = auc(fpr, tpr)
                 plt.figure()
+                if "DependencyNetwork" in model_name:
+                    model_name = "DependencyNetwork"
                 plt.title(
-                    f"Case {case_idx} {actor_name} {param_name} ROC: AUC={roc_auc:.2f}"
+                    f"{actor_name} {param_name} {model_name} ROC: AUC={roc_auc:.2f}"
                 )
-                plt.plot(fpr, tpr, color="darkorange", lw=2)
+                print(f"{actor_name} {param_name} {model_name} ROC: AUC={roc_auc:.2f}")
+                plt.plot(fpr, tpr, color=f"C{config.role_colors[actor_name]}", lw=2)
                 plt.plot([0, 1], [0, 1], color="black", lw=2, alpha=0.2, linestyle="--")
                 plt.xlim([0.0, 1.0])
-                plt.ylim([0.0, 1.05])
+                plt.ylim([0.0, 1.01])
                 plt.xlabel("False Positive Rate")
                 plt.ylabel("True Positive Rate")
-                if not os.path.exists(
-                    f"{plots_dir}/anomaly/roc/{model_name}/Case{case_idx:02d}"
-                ):
-                    os.makedirs(
-                        f"{plots_dir}/anomaly/roc/{model_name}/Case{case_idx:02d}"
-                    )
+                if not os.path.exists(f"{plots_dir}/anomaly/roc/{model_name}"):
+                    os.makedirs(f"{plots_dir}/anomaly/roc/{model_name}")
                 plt.savefig(
-                    f"{plots_dir}/anomaly/roc/{model_name}/Case{case_idx:02d}/{case_idx}_{actor_name}_{param_name}.png"
+                    f"{plots_dir}/anomaly/roc/{model_name}/{actor_name}_{param_name}_cv{cv_idx}.png"
                 )
                 plt.close()

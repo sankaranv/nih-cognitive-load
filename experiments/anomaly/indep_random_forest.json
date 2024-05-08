@@ -1,5 +1,5 @@
 {
-  "model_name": "IndependentComponentsDependencyNetwork",
+  "model_name": "IndependentComponentDependencyNetwork",
   "base_model": "RandomForestClassifier",
   "n_estimators": 100,
   "independent": true

@@ -7,7 +7,7 @@ from models.param_free import (
     ParameterFreeAutoregressiveClassifier,
     RandomRegressionModel,
 )
-from models.gaussian_process import VariationalGP
+from models.gaussian_process import GaussianProcessAnomalyDetector
 from models.dependency_network import (
     DependencyNetwork,
     IndependentComponentDependencyNetwork,
@@ -109,14 +109,14 @@ def create_model(model_type, model_config):
         model = JointNNClassifier(model_config)
     elif model_type == "RandomRegressor":
         model = RandomRegressionModel(model_config)
-    elif model_type == "VariationalGP":
-        model = VariationalGP(model_config)
     elif model_type == "DependencyNetwork":
         model = DependencyNetwork(model_config)
     elif model_type == "IndependentComponentDependencyNetwork":
         model = IndependentComponentDependencyNetwork(model_config)
     elif model_type == "ConditionalVAEAnomalyDetector":
         model = ConditionalVAEAnomalyDetector(model_config)
+    elif "GaussianProcess" in model_type:
+        model = GaussianProcessAnomalyDetector(model_config)
     else:
         raise ValueError(f"Invalid model type: {model_type}")
     return model
@@ -225,7 +225,7 @@ def anomaly_detection_eval(
                     predictions[case_idx][param_idx, anomaly_pos - seq_len] = 0
 
         # Predict probabilities on the modified test dataset
-        print(f"Obtaining test set probabilities for CV split {i}")
+        print(f"Obtaining test set probabilities for CV split {i+1}")
         test_probs, trace = model.predict_proba(test_dataset)
 
         # for j in test_dataset.keys():
@@ -240,11 +240,16 @@ def anomaly_detection_eval(
             pickle.dump(test_probs, f)
 
         # Plot ROC curves for anomalies
-        print(f"Plotting ROC curves for CV split {i}")
-        plot_anomaly_roc(test_probs, predictions, model_name, plots_dir)
+        print(f"Plotting ROC curves for CV split {i+1} aggregated")
+        plot_anomaly_roc(
+            test_probs, predictions, model_name, plots_dir, per_case=False, cv_idx=i
+        )
+
+        print(f"Plotting ROC curves for CV split {i + 1} per case")
+        plot_anomaly_roc(test_probs, predictions, model_name, plots_dir, per_case=True)
 
         # Plot probabilities for each test case
-        print(f"Plotting probabilities for CV split {i}")
+        print(f"Plotting probabilities for CV split {i+1}")
         plot_anomalies(
             test_dataset,
             test_probs,

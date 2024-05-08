@@ -1,6 +1,6 @@
 from models.mlp import MLP
 from models.lstm import LSTM, LSTMBinary
-from models.hrv_transformer import ContinuousTransformer
+from models.transformer import ContinuousTransformer
 from utils.config import config
 from utils.create_batches import create_torch_loader_from_dataset
 import utils.training as train_utils
